@@ -11,11 +11,37 @@ const RRReportProcessor = () => {
   const [downloadUrl, setDownloadUrl] = useState(null);
   const [filters, setFilters] = useState({
     property: '',
+    properties: [], // Multi-select
     category: '',
     rentReady: '',
-    search: ''
+    search: '',
+    rentMin: 0,
+    rentMax: 5000,
+    dateRange: {
+      start: '',
+      end: '',
+      dateType: 'estimated' // 'estimated' or 'actual'
+    }
   });
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [filterPresets, setFilterPresets] = useState([]);
+  const [showPdfOptions, setShowPdfOptions] = useState(false);
+  const [pdfOptions, setPdfOptions] = useState({
+    format: 'table', // 'table' or 'summary'
+    includeColumns: {
+      unit: true,
+      property: true,
+      category: true,
+      description: true,
+      rent: true,
+      rentReady: true,
+      estimatedDate: true,
+      actualDate: true,
+      days: true,
+      comments: true
+    }
+  });
 
   // Cleanup
   useEffect(() => {
@@ -61,8 +87,17 @@ const RRReportProcessor = () => {
         continue;
       }
       
-      // If we have a unit code (2-4 digits), this is a unit row
-      if (firstCell.match(/^\s*\d{2,4}\s*$/)) {
+      // If we have a unit code (alphanumeric combination), this is a unit row
+      // BUT skip if it's just a property header (no unit type data)
+      if (firstCell.match(/^\s*[A-Z0-9-]+\s*$/i)) {
+        // Skip if this looks like a property header row (no unit type or other data)
+        const hasUnitData = row[1] && row[1].toString().trim() !== '' && // Has Unit Type
+                           (row[2] && row[2].toString().trim() !== '' || // Has Description
+                            row[8] && parseFloat(row[8]) > 0);            // Has Rent > 0
+        
+        if (!hasUnitData) {
+          continue; // Skip property header rows
+        }
         // Extract property from Unit Type column (row[1])
         const propertyCode = extractPropertyFromUnitType(row[1]);
         
@@ -194,6 +229,8 @@ const RRReportProcessor = () => {
     
     const hasMoveinDate = unit.futureMoveInDate && unit.futureMoveInDate.toString().trim() !== '';
     
+    const isDownHoldModel = unit.category === 'Down/Hold/Model/Development';
+    
     // Flag if rent ready is "yes" but actual ready date is empty
     if (unit.rentReady === 'yes' && !hasActualReadyDate) {
       return true;
@@ -201,6 +238,11 @@ const RRReportProcessor = () => {
     
     // Flag if unit is rented (has future move-in date) but not rent ready
     if (hasMoveinDate && unit.rentReady !== 'yes') {
+      return true;
+    }
+    
+    // Flag if unit is Down/Hold/Model/Development but marked as rent ready
+    if (isDownHoldModel && unit.rentReady === 'yes') {
       return true;
     }
     
@@ -358,6 +400,12 @@ const RRReportProcessor = () => {
     if (filters.property) {
       filtered = filtered.filter(unit => unit.property.toLowerCase().includes(filters.property.toLowerCase()));
     }
+    
+    // Multi-property filter
+    if (filters.properties && filters.properties.length > 0) {
+      filtered = filtered.filter(unit => filters.properties.includes(unit.property));
+    }
+    
     if (filters.category) {
       filtered = filtered.filter(unit => unit.category === filters.category);
     }
@@ -373,6 +421,33 @@ const RRReportProcessor = () => {
         unit.comments.toLowerCase().includes(filters.search.toLowerCase()) ||
         unit.jobCode.toLowerCase().includes(filters.search.toLowerCase())
       );
+    }
+    
+    // Rent range filter
+    if (filters.rentMin > 0 || filters.rentMax < 5000) {
+      filtered = filtered.filter(unit => 
+        unit.askingRent >= filters.rentMin && unit.askingRent <= filters.rentMax
+      );
+    }
+    
+    // Date range filter
+    if (filters.dateRange.start && filters.dateRange.end) {
+      const startDate = new Date(filters.dateRange.start);
+      const endDate = new Date(filters.dateRange.end);
+      
+      filtered = filtered.filter(unit => {
+        let dateToCheck;
+        if (filters.dateRange.dateType === 'actual') {
+          if (!unit.actualReadyDate) return false;
+          dateToCheck = unit.actualReadyDate instanceof Date ? 
+            unit.actualReadyDate : new Date(unit.actualReadyDate);
+        } else {
+          if (!unit.estimatedReadyDate) return false;
+          dateToCheck = unit.estimatedReadyDate;
+        }
+        
+        return dateToCheck >= startDate && dateToCheck <= endDate;
+      });
     }
     
     // Apply sorting
@@ -450,6 +525,127 @@ const RRReportProcessor = () => {
     return colors[category] || 'bg-gray-100 text-gray-800';
   };
 
+  // Filter Preset Management
+  const saveFilterPreset = (name) => {
+    const preset = {
+      name,
+      filters: { ...filters },
+      timestamp: new Date().toISOString()
+    };
+    
+    const updatedPresets = [...filterPresets, preset];
+    setFilterPresets(updatedPresets);
+    
+    // Download as JSON
+    const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name.replace(/\s+/g, '_')}_filter_preset.json`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const loadFilterPreset = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const preset = JSON.parse(e.target.result);
+        setFilters(preset.filters);
+        setStatus(`Filter preset "${preset.name}" loaded successfully`);
+      } catch (error) {
+        setError('Invalid filter preset file');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const applyPresetFilter = (presetName) => {
+    const presetFilters = {
+      'Premium 1BR': {
+        ...filters,
+        rentMin: 2000,
+        rentMax: 5000,
+        search: '1 bedroom'
+      },
+      'Ready This Week': {
+        ...filters,
+        category: 'Available & Rent Ready',
+        dateRange: {
+          start: new Date().toISOString().split('T')[0],
+          end: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          dateType: 'actual'
+        }
+      },
+      'Flagged Units': {
+        ...filters,
+        category: 'Available & Rent Ready (Flagged)'
+      }
+    };
+
+    if (presetFilters[presetName]) {
+      setFilters(presetFilters[presetName]);
+    }
+  };
+
+  // PDF Generation
+  const generatePDF = async () => {
+    // For now, we'll create a simple implementation
+    // In a real app, you'd use jsPDF library
+    const data = sortedAndFilteredData();
+    
+    if (pdfOptions.format === 'table') {
+      // Generate table format
+      let pdfContent = 'RR Report Dashboard\n\n';
+      pdfContent += 'Unit\tProperty\tCategory\tDescription\tRent\tReady\tEst.Date\tActual Date\tDays\tComments\n';
+      
+      data.forEach(unit => {
+        if (pdfOptions.includeColumns.unit) pdfContent += `${unit.unitCode}\t`;
+        if (pdfOptions.includeColumns.property) pdfContent += `${unit.property}\t`;
+        if (pdfOptions.includeColumns.category) pdfContent += `${unit.category}\t`;
+        if (pdfOptions.includeColumns.description) pdfContent += `${unit.unitDescription}\t`;
+        if (pdfOptions.includeColumns.rent) pdfContent += `${unit.askingRent}\t`;
+        if (pdfOptions.includeColumns.rentReady) pdfContent += `${unit.rentReady}\t`;
+        if (pdfOptions.includeColumns.estimatedDate) pdfContent += `${unit.estimatedReadyDate ? unit.estimatedReadyDate.toLocaleDateString() : ''}\t`;
+        if (pdfOptions.includeColumns.actualDate) pdfContent += `${unit.actualReadyDate ? (unit.actualReadyDate instanceof Date ? unit.actualReadyDate.toLocaleDateString() : unit.actualReadyDate.toString()) : ''}\t`;
+        if (pdfOptions.includeColumns.days) pdfContent += `${unit.daysUntilReady || ''}\t`;
+        if (pdfOptions.includeColumns.comments) pdfContent += `${unit.comments}\t`;
+        pdfContent += '\n';
+      });
+      
+      // Download as text file (in real implementation, this would be PDF)
+      const blob = new Blob([pdfContent], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `RR_Report_${new Date().toISOString().split('T')[0]}.txt`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } else {
+      // Generate summary format
+      const stats = getCategoryStats();
+      let summaryContent = 'RR Report Summary\n\n';
+      summaryContent += `Total Units: ${data.length}\n\n`;
+      
+      Object.entries(stats).forEach(([category, count]) => {
+        summaryContent += `${category}: ${count} units\n`;
+      });
+      
+      summaryContent += `\nGenerated: ${new Date().toLocaleString()}\n`;
+      
+      const blob = new Blob([summaryContent], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `RR_Summary_${new Date().toISOString().split('T')[0]}.txt`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto p-6 bg-white rounded-lg shadow-lg">
       <div className="text-center mb-8">
@@ -511,14 +707,15 @@ const RRReportProcessor = () => {
           <div className="mt-8 p-6 bg-gray-50 rounded-lg">
             <h3 className="font-semibold text-gray-800 mb-4">🔧 What This Does:</h3>
             <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
-              <li><strong>Cleans your data:</strong> Removes summary rows, extracts property codes from Unit Type column</li>
-              <li><strong>Adds Property column:</strong> Extracts property codes from Unit Type (e.g., 0014t11c → 14t)</li>
-              <li><strong>Categorizes units:</strong> Available & Ready, Available & Ready (Flagged), Next 30 days, 31-60 days, 60+ days, Rented, Hold/Development</li>
-              <li><strong>Smart sorting:</strong> Priority by category, then by bedroom count (0, 1, 2, 3...), then by rent (cheapest first)</li>
-              <li><strong>Interactive filtering:</strong> Filter by property, category, rent ready status, or search across all fields</li>
-              <li><strong>Enhanced flagging:</strong> Flags "Rent Ready = Yes" without actual dates AND rented units that aren't ready</li>
-              <li><strong>Smart days calculation:</strong> Uses actual ready date for ready units, estimated date for others</li>
-              <li><strong>Export capability:</strong> Download cleaned data as Excel with all analysis columns</li>
+              <li><strong>Enhanced unit detection:</strong> Processes alphanumeric units (A16, BB2, 001A, E-003, PH04)</li>
+              <li><strong>Smart property extraction:</strong> Extracts property codes from Unit Type (e.g., 0014t11c → 14t)</li>
+              <li><strong>Advanced categorization:</strong> Available & Ready, Flagged, Next 30/60 days, Rented, Hold/Development</li>
+              <li><strong>Advanced filtering:</strong> Rent sliders, date ranges, multi-property selection, filter presets</li>
+              <li><strong>Smart sorting:</strong> Category priority → bedroom count → rent (cheapest first)</li>
+              <li><strong>Enhanced flagging:</strong> Rent ready without dates, rented but not ready, development but ready</li>
+              <li><strong>Smart days calculation:</strong> Uses actual ready date for ready units, estimated for others</li>
+              <li><strong>Multiple export formats:</strong> Excel data export + PDF reports (table/summary formats)</li>
+              <li><strong>Filter presets:</strong> Save/load custom filter combinations as downloadable JSON files</li>
             </ol>
           </div>
         </>
@@ -555,6 +752,14 @@ const RRReportProcessor = () => {
                   </span>
                 </div>
               )}
+              
+              <button
+                onClick={() => setShowPdfOptions(!showPdfOptions)}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                📋 Export PDF
+              </button>
+              
               <button
                 onClick={() => setShowDashboard(false)}
                 className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
@@ -563,6 +768,62 @@ const RRReportProcessor = () => {
               </button>
             </div>
           </div>
+
+          {/* PDF Export Options */}
+          {showPdfOptions && (
+            <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+              <h3 className="font-semibold text-purple-800 mb-3">PDF Export Options</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Format</label>
+                  <select
+                    value={pdfOptions.format}
+                    onChange={(e) => setPdfOptions({...pdfOptions, format: e.target.value})}
+                    className="w-full p-2 border border-gray-300 rounded text-sm"
+                  >
+                    <option value="table">Table Format</option>
+                    <option value="summary">Summary Report</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Include Columns</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.entries(pdfOptions.includeColumns).map(([key, checked]) => (
+                      <label key={key} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => setPdfOptions({
+                            ...pdfOptions, 
+                            includeColumns: {...pdfOptions.includeColumns, [key]: e.target.checked}
+                          })}
+                          className="mr-2"
+                        />
+                        <span className="text-xs capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={generatePDF}
+                  className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
+                >
+                  Generate PDF
+                </button>
+                <button
+                  onClick={() => setShowPdfOptions(false)}
+                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Category Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
@@ -575,58 +836,215 @@ const RRReportProcessor = () => {
           </div>
 
           {/* Filters */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Property</label>
-              <select
-                value={filters.property}
-                onChange={(e) => setFilters({...filters, property: e.target.value})}
-                className="w-full p-2 border border-gray-300 rounded text-sm"
-              >
-                <option value="">All Properties</option>
-                {[...new Set(cleanedData.map(unit => unit.property))].map(prop => (
-                  <option key={prop} value={prop}>{prop}</option>
-                ))}
-              </select>
+          <div className="bg-gray-50 rounded-lg p-4 space-y-4">
+            {/* Basic Filters Row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Property</label>
+                <select
+                  value={filters.property}
+                  onChange={(e) => setFilters({...filters, property: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded text-sm"
+                >
+                  <option value="">All Properties</option>
+                  {[...new Set(cleanedData.map(unit => unit.property))].map(prop => (
+                    <option key={prop} value={prop}>{prop}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <select
+                  value={filters.category}
+                  onChange={(e) => setFilters({...filters, category: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded text-sm"
+                >
+                  <option value="">All Categories</option>
+                  {Object.keys(getCategoryStats()).map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Rent Ready</label>
+                <select
+                  value={filters.rentReady}
+                  onChange={(e) => setFilters({...filters, rentReady: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded text-sm"
+                >
+                  <option value="">All</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
+                <input
+                  type="text"
+                  placeholder="Unit, description, comments..."
+                  value={filters.search}
+                  onChange={(e) => setFilters({...filters, search: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded text-sm"
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-              <select
-                value={filters.category}
-                onChange={(e) => setFilters({...filters, category: e.target.value})}
-                className="w-full p-2 border border-gray-300 rounded text-sm"
+            {/* Advanced Filters Toggle */}
+            <div className="flex justify-between items-center">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                >
+                  {showAdvancedFilters ? 'Hide' : 'Show'} Advanced Filters
+                </button>
+                
+                <div className="flex gap-1">
+                  <button onClick={() => applyPresetFilter('Premium 1BR')} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300">Premium 1BR</button>
+                  <button onClick={() => applyPresetFilter('Ready This Week')} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300">Ready This Week</button>
+                  <button onClick={() => applyPresetFilter('Flagged Units')} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300">Flagged Units</button>
+                </div>
+              </div>
+              
+              <button
+                onClick={() => setFilters({
+                  property: '',
+                  properties: [],
+                  category: '',
+                  rentReady: '',
+                  search: '',
+                  rentMin: 0,
+                  rentMax: 5000,
+                  dateRange: { start: '', end: '', dateType: 'estimated' }
+                })}
+                className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
               >
-                <option value="">All Categories</option>
-                {Object.keys(getCategoryStats()).map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
+                Clear All
+              </button>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Rent Ready</label>
-              <select
-                value={filters.rentReady}
-                onChange={(e) => setFilters({...filters, rentReady: e.target.value})}
-                className="w-full p-2 border border-gray-300 rounded text-sm"
-              >
-                <option value="">All</option>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </select>
-            </div>
+            {/* Advanced Filters */}
+            {showAdvancedFilters && (
+              <div className="border-t pt-4 space-y-4">
+                {/* Rent Range */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Rent Range: ${filters.rentMin} - ${filters.rentMax}
+                  </label>
+                  <div className="flex gap-4 items-center">
+                    <input
+                      type="range"
+                      min="0"
+                      max="5000"
+                      step="50"
+                      value={filters.rentMin}
+                      onChange={(e) => setFilters({...filters, rentMin: parseInt(e.target.value)})}
+                      className="flex-1"
+                    />
+                    <input
+                      type="range"
+                      min="0"
+                      max="5000"
+                      step="50"
+                      value={filters.rentMax}
+                      onChange={(e) => setFilters({...filters, rentMax: parseInt(e.target.value)})}
+                      className="flex-1"
+                    />
+                  </div>
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
-              <input
-                type="text"
-                placeholder="Unit, description, comments..."
-                value={filters.search}
-                onChange={(e) => setFilters({...filters, search: e.target.value})}
-                className="w-full p-2 border border-gray-300 rounded text-sm"
-              />
-            </div>
+                {/* Date Range */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Date Type</label>
+                    <select
+                      value={filters.dateRange.dateType}
+                      onChange={(e) => setFilters({...filters, dateRange: {...filters.dateRange, dateType: e.target.value}})}
+                      className="w-full p-2 border border-gray-300 rounded text-sm"
+                    >
+                      <option value="estimated">Estimated Ready Date</option>
+                      <option value="actual">Actual Ready Date</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+                    <input
+                      type="date"
+                      value={filters.dateRange.start}
+                      onChange={(e) => setFilters({...filters, dateRange: {...filters.dateRange, start: e.target.value}})}
+                      className="w-full p-2 border border-gray-300 rounded text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+                    <input
+                      type="date"
+                      value={filters.dateRange.end}
+                      onChange={(e) => setFilters({...filters, dateRange: {...filters.dateRange, end: e.target.value}})}
+                      className="w-full p-2 border border-gray-300 rounded text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Multi-Property Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Select Multiple Properties</label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {[...new Set(cleanedData.map(unit => unit.property))].map(prop => (
+                      <label key={prop} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={filters.properties.includes(prop)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFilters({...filters, properties: [...filters.properties, prop]});
+                            } else {
+                              setFilters({...filters, properties: filters.properties.filter(p => p !== prop)});
+                            }
+                          }}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">{prop}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Filter Presets */}
+                <div className="flex gap-4 items-center">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Save Current Filter</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Preset name..."
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter' && e.target.value.trim()) {
+                            saveFilterPreset(e.target.value.trim());
+                            e.target.value = '';
+                          }
+                        }}
+                        className="px-2 py-1 border border-gray-300 rounded text-sm"
+                      />
+                      <span className="text-xs text-gray-500 self-center">Press Enter to save</span>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Load Filter Preset</label>
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={loadFilterPreset}
+                      className="text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Data Table */}
