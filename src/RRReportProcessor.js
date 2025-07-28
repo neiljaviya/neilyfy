@@ -21,7 +21,8 @@ const RRReportProcessor = () => {
       start: '',
       end: '',
       dateType: 'estimated' // 'estimated' or 'actual'
-    }
+    },
+    showFlaggedOnly: false
   });
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -430,6 +431,11 @@ const RRReportProcessor = () => {
       );
     }
     
+    // Show flagged units only
+    if (filters.showFlaggedOnly) {
+      filtered = filtered.filter(unit => unit.hasIssues === true);
+    }
+    
     // Date range filter
     if (filters.dateRange.start && filters.dateRange.end) {
       const startDate = new Date(filters.dateRange.start);
@@ -564,25 +570,24 @@ const RRReportProcessor = () => {
   };
 
   const applyPresetFilter = (presetName) => {
+    const today = new Date();
+    const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    
     const presetFilters = {
-      'Premium 1BR': {
-        ...filters,
-        rentMin: 2000,
-        rentMax: 5000,
-        search: '1 bedroom'
-      },
       'Ready This Week': {
         ...filters,
-        category: 'Available & Rent Ready',
+        category: '', // Don't filter by category
         dateRange: {
-          start: new Date().toISOString().split('T')[0],
-          end: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          dateType: 'actual'
+          start: today.toISOString().split('T')[0],
+          end: nextWeek.toISOString().split('T')[0],
+          dateType: 'estimated' // Use estimated dates for "when will it be ready"
         }
       },
       'Flagged Units': {
         ...filters,
-        category: 'Available & Rent Ready (Flagged)'
+        category: '', // Don't filter by category, flagged units can be in any category
+        // We'll need to add custom logic for this in the filter function
+        showFlaggedOnly: true
       }
     };
 
@@ -710,12 +715,12 @@ const RRReportProcessor = () => {
               <li><strong>Enhanced unit detection:</strong> Processes alphanumeric units (A16, BB2, 001A, E-003, PH04)</li>
               <li><strong>Smart property extraction:</strong> Extracts property codes from Unit Type (e.g., 0014t11c → 14t)</li>
               <li><strong>Advanced categorization:</strong> Available & Ready, Flagged, Next 30/60 days, Rented, Hold/Development</li>
-              <li><strong>Advanced filtering:</strong> Rent sliders, date ranges, multi-property selection, filter presets</li>
-              <li><strong>Smart sorting:</strong> Category priority → bedroom count → rent (cheapest first)</li>
+              <li><strong>Advanced filtering:</strong> Rent sliders, date ranges, multi-property selection, visual filter indicators</li>
+              <li><strong>Smart presets:</strong> "Ready This Week" (estimated dates), "Flagged Units" (data issues)</li>
               <li><strong>Enhanced flagging:</strong> Rent ready without dates, rented but not ready, development but ready</li>
               <li><strong>Smart days calculation:</strong> Uses actual ready date for ready units, estimated for others</li>
               <li><strong>Multiple export formats:</strong> Excel data export + PDF reports (table/summary formats)</li>
-              <li><strong>Filter presets:</strong> Save/load custom filter combinations as downloadable JSON files</li>
+              <li><strong>Filter management:</strong> Save/load custom filter combinations, clear active filter indicators</li>
             </ol>
           </div>
         </>
@@ -844,7 +849,9 @@ const RRReportProcessor = () => {
                 <select
                   value={filters.property}
                   onChange={(e) => setFilters({...filters, property: e.target.value})}
-                  className="w-full p-2 border border-gray-300 rounded text-sm"
+                  className={`w-full p-2 border rounded text-sm transition-colors ${
+                    filters.property ? 'border-blue-400 bg-blue-50' : 'border-gray-300'
+                  }`}
                 >
                   <option value="">All Properties</option>
                   {[...new Set(cleanedData.map(unit => unit.property))].map(prop => (
@@ -858,7 +865,9 @@ const RRReportProcessor = () => {
                 <select
                   value={filters.category}
                   onChange={(e) => setFilters({...filters, category: e.target.value})}
-                  className="w-full p-2 border border-gray-300 rounded text-sm"
+                  className={`w-full p-2 border rounded text-sm transition-colors ${
+                    filters.category ? 'border-green-400 bg-green-50' : 'border-gray-300'
+                  }`}
                 >
                   <option value="">All Categories</option>
                   {Object.keys(getCategoryStats()).map(cat => (
@@ -872,7 +881,9 @@ const RRReportProcessor = () => {
                 <select
                   value={filters.rentReady}
                   onChange={(e) => setFilters({...filters, rentReady: e.target.value})}
-                  className="w-full p-2 border border-gray-300 rounded text-sm"
+                  className={`w-full p-2 border rounded text-sm transition-colors ${
+                    filters.rentReady ? 'border-purple-400 bg-purple-50' : 'border-gray-300'
+                  }`}
                 >
                   <option value="">All</option>
                   <option value="yes">Yes</option>
@@ -887,7 +898,9 @@ const RRReportProcessor = () => {
                   placeholder="Unit, description, comments..."
                   value={filters.search}
                   onChange={(e) => setFilters({...filters, search: e.target.value})}
-                  className="w-full p-2 border border-gray-300 rounded text-sm"
+                  className={`w-full p-2 border rounded text-sm transition-colors ${
+                    filters.search ? 'border-orange-400 bg-orange-50' : 'border-gray-300'
+                  }`}
                 />
               </div>
             </div>
@@ -903,9 +916,26 @@ const RRReportProcessor = () => {
                 </button>
                 
                 <div className="flex gap-1">
-                  <button onClick={() => applyPresetFilter('Premium 1BR')} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300">Premium 1BR</button>
-                  <button onClick={() => applyPresetFilter('Ready This Week')} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300">Ready This Week</button>
-                  <button onClick={() => applyPresetFilter('Flagged Units')} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300">Flagged Units</button>
+                  <button 
+                    onClick={() => applyPresetFilter('Ready This Week')} 
+                    className={`px-2 py-1 rounded text-xs transition-colors ${
+                      filters.dateRange.start && filters.dateRange.dateType === 'estimated' 
+                        ? 'bg-blue-200 text-blue-800 border border-blue-300' 
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    Ready This Week
+                  </button>
+                  <button 
+                    onClick={() => applyPresetFilter('Flagged Units')} 
+                    className={`px-2 py-1 rounded text-xs transition-colors ${
+                      filters.showFlaggedOnly 
+                        ? 'bg-red-200 text-red-800 border border-red-300' 
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    Flagged Units
+                  </button>
                 </div>
               </div>
               
@@ -918,12 +948,57 @@ const RRReportProcessor = () => {
                   search: '',
                   rentMin: 0,
                   rentMax: 5000,
-                  dateRange: { start: '', end: '', dateType: 'estimated' }
+                  dateRange: { start: '', end: '', dateType: 'estimated' },
+                  showFlaggedOnly: false
                 })}
                 className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
               >
                 Clear All
               </button>
+            </div>
+
+            {/* Active Filters Indicator */}
+            <div className="flex flex-wrap gap-2">
+              {filters.property && (
+                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                  Property: {filters.property}
+                </span>
+              )}
+              {filters.properties.length > 0 && (
+                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                  Properties: {filters.properties.join(', ')}
+                </span>
+              )}
+              {filters.category && (
+                <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">
+                  Category: {filters.category}
+                </span>
+              )}
+              {filters.rentReady && (
+                <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs">
+                  Rent Ready: {filters.rentReady}
+                </span>
+              )}
+              {filters.search && (
+                <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded-full text-xs">
+                  Search: "{filters.search}"
+                </span>
+              )}
+              {(filters.rentMin > 0 || filters.rentMax < 5000) && (
+                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs">
+                  Rent: ${filters.rentMin} - ${filters.rentMax}
+                </span>
+              )}
+              {filters.dateRange.start && filters.dateRange.end && (
+                <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs">
+                  {filters.dateRange.dateType === 'actual' ? 'Actual' : 'Estimated'} Date: {filters.dateRange.start} to {filters.dateRange.end}
+                </span>
+              )}
+              {filters.showFlaggedOnly && (
+                <span className="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs">
+                  Flagged Units Only
+                </span>
+              )}
             </div>
 
             {/* Advanced Filters */}
@@ -933,6 +1008,9 @@ const RRReportProcessor = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Rent Range: ${filters.rentMin} - ${filters.rentMax}
+                    {(filters.rentMin > 0 || filters.rentMax < 5000) && (
+                      <span className="ml-2 px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs">Active</span>
+                    )}
                   </label>
                   <div className="flex gap-4 items-center">
                     <input
@@ -959,7 +1037,12 @@ const RRReportProcessor = () => {
                 {/* Date Range */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Date Type</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Date Type
+                      {filters.dateRange.start && filters.dateRange.end && (
+                        <span className="ml-2 px-2 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs">Active</span>
+                      )}
+                    </label>
                     <select
                       value={filters.dateRange.dateType}
                       onChange={(e) => setFilters({...filters, dateRange: {...filters.dateRange, dateType: e.target.value}})}
@@ -975,7 +1058,9 @@ const RRReportProcessor = () => {
                       type="date"
                       value={filters.dateRange.start}
                       onChange={(e) => setFilters({...filters, dateRange: {...filters.dateRange, start: e.target.value}})}
-                      className="w-full p-2 border border-gray-300 rounded text-sm"
+                      className={`w-full p-2 border rounded text-sm transition-colors ${
+                        filters.dateRange.start ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300'
+                      }`}
                     />
                   </div>
                   <div>
@@ -984,14 +1069,23 @@ const RRReportProcessor = () => {
                       type="date"
                       value={filters.dateRange.end}
                       onChange={(e) => setFilters({...filters, dateRange: {...filters.dateRange, end: e.target.value}})}
-                      className="w-full p-2 border border-gray-300 rounded text-sm"
+                      className={`w-full p-2 border rounded text-sm transition-colors ${
+                        filters.dateRange.end ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300'
+                      }`}
                     />
                   </div>
                 </div>
 
                 {/* Multi-Property Selection */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Select Multiple Properties</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Multiple Properties
+                    {filters.properties.length > 0 && (
+                      <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                        {filters.properties.length} selected
+                      </span>
+                    )}
+                  </label>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     {[...new Set(cleanedData.map(unit => unit.property))].map(prop => (
                       <label key={prop} className="flex items-center">
@@ -1007,7 +1101,9 @@ const RRReportProcessor = () => {
                           }}
                           className="mr-2"
                         />
-                        <span className="text-sm">{prop}</span>
+                        <span className={`text-sm ${
+                          filters.properties.includes(prop) ? 'font-semibold text-blue-700' : ''
+                        }`}>{prop}</span>
                       </label>
                     ))}
                   </div>
