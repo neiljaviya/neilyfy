@@ -11,7 +11,7 @@ const RRReportProcessor = () => {
   const [downloadUrl, setDownloadUrl] = useState(null);
   const [filters, setFilters] = useState({
     property: '',
-    properties: [], // Multi-select
+    properties: [],
     category: '',
     rentReady: '',
     search: '',
@@ -20,27 +20,29 @@ const RRReportProcessor = () => {
     dateRange: {
       start: '',
       end: '',
-      dateType: 'estimated' // 'estimated' or 'actual'
+      dateType: 'estimated'
     },
     showFlaggedOnly: false
   });
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [filterPresets, setFilterPresets] = useState([]);
   const [showPdfOptions, setShowPdfOptions] = useState(false);
   const [pdfOptions, setPdfOptions] = useState({
-    format: 'table', // 'table' or 'summary'
+    format: 'table',
     includeColumns: {
-      unit: true,
+      unitCode: true,
       property: true,
       category: true,
-      description: true,
-      rent: true,
+      unitDescription: true,
+      askingRent: true,
       rentReady: true,
-      estimatedDate: true,
-      actualDate: true,
-      days: true,
-      comments: true
+      estimatedReadyDate: true,
+      actualReadyDate: true,
+      daysUntilReady: true,
+      comments: false,
+      rentalType: false,
+      vacateType: false,
+      futureMoveInDate: false
     }
   });
 
@@ -72,6 +74,32 @@ const RRReportProcessor = () => {
     return null;
   };
 
+  const extractPropertyFromUnitType = (unitType) => {
+    if (!unitType) return '';
+    
+    const trimmed = unitType.toString().trim();
+    // Remove leading zeros
+    const withoutLeadingZeros = trimmed.replace(/^0+/, '');
+    // Extract property code pattern: digits followed by letter(s), before any additional digits
+    const match = withoutLeadingZeros.match(/^(\d+[a-z]+)/i);
+    
+    return match ? match[1] : '';
+  };
+
+  const extractBedroomCount = (description) => {
+    const desc = description.toLowerCase();
+    
+    // Look for patterns like "1 bedroom", "2 bedroom", "3-bedroom", etc.
+    const match = desc.match(/(\d+)[\s-]*bedroom/);
+    if (match) return parseInt(match[1]);
+    
+    // Handle special cases
+    if (desc.includes('bachelor') || desc.includes('studio') || desc.includes('0 bedroom')) return 0;
+    
+    // If no bedroom info found, put at end
+    return 999;
+  };
+
   const cleanAndProcessData = (jsonData) => {
     const cleanedUnits = [];
     
@@ -89,7 +117,7 @@ const RRReportProcessor = () => {
       }
       
       // If we have a unit code (alphanumeric combination), this is a unit row
-      // BUT skip if it's just a property header (no unit type data)
+      // BUT skip if it's just a property header (no unit data)
       if (firstCell.match(/^\s*[A-Z0-9-]+\s*$/i)) {
         // Skip if this looks like a property header row (no unit type or other data)
         const hasUnitData = row[1] && row[1].toString().trim() !== '' && // Has Unit Type
@@ -99,6 +127,7 @@ const RRReportProcessor = () => {
         if (!hasUnitData) {
           continue; // Skip property header rows
         }
+
         // Extract property from Unit Type column (row[1])
         const propertyCode = extractPropertyFromUnitType(row[1]);
         
@@ -250,32 +279,6 @@ const RRReportProcessor = () => {
     return false;
   };
 
-  const extractPropertyFromUnitType = (unitType) => {
-    if (!unitType) return '';
-    
-    const trimmed = unitType.toString().trim();
-    // Remove leading zeros
-    const withoutLeadingZeros = trimmed.replace(/^0+/, '');
-    // Extract property code pattern: digits followed by letter(s), before any additional digits
-    const match = withoutLeadingZeros.match(/^(\d+[a-z]+)/i);
-    
-    return match ? match[1] : '';
-  };
-
-  const extractBedroomCount = (description) => {
-    const desc = description.toLowerCase();
-    
-    // Look for patterns like "1 bedroom", "2 bedroom", "3-bedroom", etc.
-    const match = desc.match(/(\d+)[\s-]*bedroom/);
-    if (match) return parseInt(match[1]);
-    
-    // Handle special cases
-    if (desc.includes('bachelor') || desc.includes('studio') || desc.includes('0 bedroom')) return 0;
-    
-    // If no bedroom info found, put at end
-    return 999;
-  };
-
   const processFile = async (file) => {
     setProcessing(true);
     setStatus('Reading Excel file...');
@@ -305,6 +308,229 @@ const RRReportProcessor = () => {
       console.error('Processing error:', err);
     } finally {
       setProcessing(false);
+    }
+  };
+
+  const generatePDF = () => {
+    if (!cleanedData) return;
+
+    const filteredData = sortedAndFilteredData();
+    const stats = getCategoryStats();
+
+    // Create HTML content for printing
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>RR Report Dashboard - ${new Date().toLocaleDateString()}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { 
+            font-family: Arial, sans-serif; 
+            font-size: 12px; 
+            line-height: 1.4;
+            color: #333;
+            padding: 20px;
+          }
+          .header { 
+            text-align: center; 
+            margin-bottom: 30px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 15px;
+          }
+          .header h1 { font-size: 24px; margin-bottom: 5px; }
+          .header p { color: #666; }
+          .stats-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+            gap: 15px; 
+            margin-bottom: 30px;
+          }
+          .stat-card { 
+            border: 1px solid #ddd; 
+            padding: 12px; 
+            border-radius: 4px;
+            background: #f9f9f9;
+          }
+          .stat-card .number { font-size: 20px; font-weight: bold; color: #2563eb; }
+          .stat-card .label { font-size: 11px; color: #666; margin-top: 4px; }
+          table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-bottom: 20px;
+            font-size: 10px;
+          }
+          th, td { 
+            border: 1px solid #ddd; 
+            padding: 8px; 
+            text-align: left;
+            vertical-align: top;
+          }
+          th { 
+            background-color: #f5f5f5; 
+            font-weight: bold;
+            font-size: 10px;
+          }
+          .category-ready { background-color: #d4edda; }
+          .category-flagged { background-color: #fff3cd; }
+          .category-30days { background-color: #cce5ff; }
+          .category-60days { background-color: #e2d5f0; }
+          .category-future { background-color: #f8f9fa; }
+          .category-rented { background-color: #ffd6cc; }
+          .category-down { background-color: #f8d7da; }
+          .category-unknown { background-color: #fff3cd; }
+          .flagged-row { background-color: #ffebee; }
+          .rent-ready-yes { 
+            background-color: #d4edda; 
+            color: #155724; 
+            padding: 2px 6px; 
+            border-radius: 3px;
+            font-size: 9px;
+          }
+          .rent-ready-no { 
+            background-color: #f8f9fa; 
+            color: #6c757d; 
+            padding: 2px 6px; 
+            border-radius: 3px;
+            font-size: 9px;
+          }
+          .property-badge {
+            background-color: #cce5ff;
+            color: #004085;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 9px;
+          }
+          .days-ready { background-color: #d4edda; color: #155724; }
+          .days-soon { background-color: #cce5ff; color: #004085; }
+          .days-future { background-color: #f8f9fa; color: #6c757d; }
+          .text-center { text-align: center; }
+          .truncate { 
+            max-width: 150px; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            white-space: nowrap; 
+          }
+          .footer {
+            margin-top: 30px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            color: #666;
+            font-size: 10px;
+          }
+          @media print {
+            body { font-size: 10px; margin: 0; padding: 15px; }
+            .header { margin-bottom: 20px; }
+            .stats-grid { margin-bottom: 20px; }
+            table { font-size: 8px; }
+            th, td { padding: 4px; }
+            .stat-card .number { font-size: 16px; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>🏢 RR Report Dashboard</h1>
+          <p>Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
+          <p>Showing ${filteredData.length} of ${cleanedData.length} units</p>
+        </div>
+
+        ${pdfOptions.format === 'summary' ? `
+          <div class="stats-grid">
+            ${Object.entries(stats).map(([category, count]) => `
+              <div class="stat-card">
+                <div class="number">${count}</div>
+                <div class="label">${category}</div>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+
+        <table>
+          <thead>
+            <tr>
+              ${pdfOptions.includeColumns.unitCode ? '<th>Unit</th>' : ''}
+              ${pdfOptions.includeColumns.property ? '<th>Property</th>' : ''}
+              ${pdfOptions.includeColumns.category ? '<th>Category</th>' : ''}
+              ${pdfOptions.includeColumns.unitDescription ? '<th>Description</th>' : ''}
+              ${pdfOptions.includeColumns.rentalType ? '<th>Type</th>' : ''}
+              ${pdfOptions.includeColumns.askingRent ? '<th>Rent</th>' : ''}
+              ${pdfOptions.includeColumns.rentReady ? '<th>Ready</th>' : ''}
+              ${pdfOptions.includeColumns.estimatedReadyDate ? '<th>Est. Date</th>' : ''}
+              ${pdfOptions.includeColumns.actualReadyDate ? '<th>Actual Date</th>' : ''}
+              ${pdfOptions.includeColumns.daysUntilReady ? '<th>Days</th>' : ''}
+              ${pdfOptions.includeColumns.vacateType ? '<th>Vacate</th>' : ''}
+              ${pdfOptions.includeColumns.futureMoveInDate ? '<th>Move In</th>' : ''}
+              ${pdfOptions.includeColumns.comments ? '<th>Comments</th>' : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${filteredData.map(unit => {
+              const categoryClass = {
+                'Available & Rent Ready': 'category-ready',
+                'Available & Rent Ready (Flagged)': 'category-flagged',
+                'Available in Next 30 Days': 'category-30days',
+                'Available in Next 31-60 Days': 'category-60days',
+                'Available in More than 60 Days': 'category-future',
+                'Already Rented': 'category-rented',
+                'Down/Hold/Model/Development': 'category-down',
+                'Unknown': 'category-unknown'
+              }[unit.category] || '';
+
+              const daysClass = unit.daysUntilReady !== null ? (
+                unit.daysUntilReady <= 0 ? 'days-ready' :
+                unit.daysUntilReady <= 30 ? 'days-soon' : 'days-future'
+              ) : '';
+
+              return `
+                <tr class="${unit.hasIssues ? 'flagged-row' : ''}">
+                  ${pdfOptions.includeColumns.unitCode ? `<td><strong>${unit.unitCode}</strong></td>` : ''}
+                  ${pdfOptions.includeColumns.property ? `<td><span class="property-badge">${unit.property}</span></td>` : ''}
+                  ${pdfOptions.includeColumns.category ? `<td><div class="${categoryClass}" style="padding: 2px 6px; border-radius: 3px; font-size: 9px;">${unit.category}</div></td>` : ''}
+                  ${pdfOptions.includeColumns.unitDescription ? `<td class="truncate">${unit.unitDescription}</td>` : ''}
+                  ${pdfOptions.includeColumns.rentalType ? `<td>${unit.rentalType}</td>` : ''}
+                  ${pdfOptions.includeColumns.askingRent ? `<td>$${unit.askingRent.toLocaleString()}</td>` : ''}
+                  ${pdfOptions.includeColumns.rentReady ? `<td><span class="rent-ready-${unit.rentReady}">${unit.rentReady}${unit.hasIssues ? ' ⚠️' : ''}</span></td>` : ''}
+                  ${pdfOptions.includeColumns.estimatedReadyDate ? `<td>${unit.estimatedReadyDate ? unit.estimatedReadyDate.toLocaleDateString() : '—'}</td>` : ''}
+                  ${pdfOptions.includeColumns.actualReadyDate ? `<td>${unit.actualReadyDate ? (unit.actualReadyDate instanceof Date ? unit.actualReadyDate.toLocaleDateString() : unit.actualReadyDate.toString()) : '—'}</td>` : ''}
+                  ${pdfOptions.includeColumns.daysUntilReady ? `<td class="text-center"><span class="${daysClass}" style="padding: 2px 6px; border-radius: 3px; font-size: 9px;">${unit.daysUntilReady !== null ? (unit.daysUntilReady <= 0 ? 'Ready' : `${unit.daysUntilReady}d`) : '—'}</span></td>` : ''}
+                  ${pdfOptions.includeColumns.vacateType ? `<td>${unit.vacateType || '—'}</td>` : ''}
+                  ${pdfOptions.includeColumns.futureMoveInDate ? `<td>${unit.futureMoveInDate || '—'}</td>` : ''}
+                  ${pdfOptions.includeColumns.comments ? `<td class="truncate">${unit.comments}</td>` : ''}
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          <p>RR Report Dashboard - Data processed from Yardi Rent Ready export</p>
+          <p>Flagged units (⚠️) indicate data quality issues that may need attention</p>
+        </div>
+
+        <script>
+          // Auto-trigger print dialog after page loads
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 500);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    // Open new window and write HTML content
+    const printWindow = window.open('', '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+    
+    if (printWindow) {
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+      printWindow.focus();
+    } else {
+      alert('Popup blocked! Please allow popups for this site to generate PDF reports.');
     }
   };
 
@@ -531,44 +757,6 @@ const RRReportProcessor = () => {
     return colors[category] || 'bg-gray-100 text-gray-800';
   };
 
-  // Filter Preset Management
-  const saveFilterPreset = (name) => {
-    const preset = {
-      name,
-      filters: { ...filters },
-      timestamp: new Date().toISOString()
-    };
-    
-    const updatedPresets = [...filterPresets, preset];
-    setFilterPresets(updatedPresets);
-    
-    // Download as JSON
-    const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${name.replace(/\s+/g, '_')}_filter_preset.json`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-  };
-
-  const loadFilterPreset = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const preset = JSON.parse(e.target.result);
-        setFilters(preset.filters);
-        setStatus(`Filter preset "${preset.name}" loaded successfully`);
-      } catch (error) {
-        setError('Invalid filter preset file');
-      }
-    };
-    reader.readAsText(file);
-  };
-
   const applyPresetFilter = (presetName) => {
     const today = new Date();
     const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -576,78 +764,22 @@ const RRReportProcessor = () => {
     const presetFilters = {
       'Ready This Week': {
         ...filters,
-        category: '', // Don't filter by category
+        category: '',
         dateRange: {
           start: today.toISOString().split('T')[0],
           end: nextWeek.toISOString().split('T')[0],
-          dateType: 'estimated' // Use estimated dates for "when will it be ready"
+          dateType: 'estimated'
         }
       },
       'Flagged Units': {
         ...filters,
-        category: '', // Don't filter by category, flagged units can be in any category
-        // We'll need to add custom logic for this in the filter function
+        category: '',
         showFlaggedOnly: true
       }
     };
 
     if (presetFilters[presetName]) {
       setFilters(presetFilters[presetName]);
-    }
-  };
-
-  // PDF Generation
-  const generatePDF = async () => {
-    // For now, we'll create a simple implementation
-    // In a real app, you'd use jsPDF library
-    const data = sortedAndFilteredData();
-    
-    if (pdfOptions.format === 'table') {
-      // Generate table format
-      let pdfContent = 'RR Report Dashboard\n\n';
-      pdfContent += 'Unit\tProperty\tCategory\tDescription\tRent\tReady\tEst.Date\tActual Date\tDays\tComments\n';
-      
-      data.forEach(unit => {
-        if (pdfOptions.includeColumns.unit) pdfContent += `${unit.unitCode}\t`;
-        if (pdfOptions.includeColumns.property) pdfContent += `${unit.property}\t`;
-        if (pdfOptions.includeColumns.category) pdfContent += `${unit.category}\t`;
-        if (pdfOptions.includeColumns.description) pdfContent += `${unit.unitDescription}\t`;
-        if (pdfOptions.includeColumns.rent) pdfContent += `${unit.askingRent}\t`;
-        if (pdfOptions.includeColumns.rentReady) pdfContent += `${unit.rentReady}\t`;
-        if (pdfOptions.includeColumns.estimatedDate) pdfContent += `${unit.estimatedReadyDate ? unit.estimatedReadyDate.toLocaleDateString() : ''}\t`;
-        if (pdfOptions.includeColumns.actualDate) pdfContent += `${unit.actualReadyDate ? (unit.actualReadyDate instanceof Date ? unit.actualReadyDate.toLocaleDateString() : unit.actualReadyDate.toString()) : ''}\t`;
-        if (pdfOptions.includeColumns.days) pdfContent += `${unit.daysUntilReady || ''}\t`;
-        if (pdfOptions.includeColumns.comments) pdfContent += `${unit.comments}\t`;
-        pdfContent += '\n';
-      });
-      
-      // Download as text file (in real implementation, this would be PDF)
-      const blob = new Blob([pdfContent], { type: 'text/plain' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `RR_Report_${new Date().toISOString().split('T')[0]}.txt`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } else {
-      // Generate summary format
-      const stats = getCategoryStats();
-      let summaryContent = 'RR Report Summary\n\n';
-      summaryContent += `Total Units: ${data.length}\n\n`;
-      
-      Object.entries(stats).forEach(([category, count]) => {
-        summaryContent += `${category}: ${count} units\n`;
-      });
-      
-      summaryContent += `\nGenerated: ${new Date().toLocaleString()}\n`;
-      
-      const blob = new Blob([summaryContent], { type: 'text/plain' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `RR_Summary_${new Date().toISOString().split('T')[0]}.txt`;
-      a.click();
-      window.URL.revokeObjectURL(url);
     }
   };
 
@@ -719,8 +851,8 @@ const RRReportProcessor = () => {
               <li><strong>Smart presets:</strong> "Ready This Week" (estimated dates), "Flagged Units" (data issues)</li>
               <li><strong>Enhanced flagging:</strong> Rent ready without dates, rented but not ready, development but ready</li>
               <li><strong>Smart days calculation:</strong> Uses actual ready date for ready units, estimated for others</li>
-              <li><strong>Multiple export formats:</strong> Excel data export + PDF reports (table/summary formats)</li>
-              <li><strong>Filter management:</strong> Save/load custom filter combinations, clear active filter indicators</li>
+              <li><strong>Excel export:</strong> Download cleaned data with all analysis columns</li>
+              <li><strong>PDF export:</strong> Print-optimized reports with customizable columns</li>
             </ol>
           </div>
         </>
@@ -736,6 +868,13 @@ const RRReportProcessor = () => {
               <p className="text-gray-600">{cleanedData.length} units processed</p>
             </div>
             <div className="flex gap-3">
+              <button
+                onClick={() => setShowPdfOptions(!showPdfOptions)}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                📄 Generate PDF
+              </button>
+              
               {!downloadUrl ? (
                 <button
                   onClick={exportToExcel}
@@ -759,13 +898,6 @@ const RRReportProcessor = () => {
               )}
               
               <button
-                onClick={() => setShowPdfOptions(!showPdfOptions)}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                📋 Export PDF
-              </button>
-              
-              <button
                 onClick={() => setShowDashboard(false)}
                 className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
               >
@@ -777,8 +909,7 @@ const RRReportProcessor = () => {
           {/* PDF Export Options */}
           {showPdfOptions && (
             <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-              <h3 className="font-semibold text-purple-800 mb-3">PDF Export Options</h3>
-              
+              <h3 className="font-semibold text-purple-800 mb-3">📄 PDF Export Options</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Format</label>
@@ -787,46 +918,61 @@ const RRReportProcessor = () => {
                     onChange={(e) => setPdfOptions({...pdfOptions, format: e.target.value})}
                     className="w-full p-2 border border-gray-300 rounded text-sm"
                   >
-                    <option value="table">Table Format</option>
-                    <option value="summary">Summary Report</option>
+                    <option value="table">Table Format (Detailed)</option>
+                    <option value="summary">Summary Report (with Stats)</option>
                   </select>
                 </div>
-                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Include Columns</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {Object.entries(pdfOptions.includeColumns).map(([key, checked]) => (
+                  <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                    {Object.entries({
+                      unitCode: 'Unit Code',
+                      property: 'Property',
+                      category: 'Category',
+                      unitDescription: 'Description',
+                      rentalType: 'Rental Type',
+                      askingRent: 'Asking Rent',
+                      rentReady: 'Rent Ready',
+                      estimatedReadyDate: 'Est. Date',
+                      actualReadyDate: 'Actual Date',
+                      daysUntilReady: 'Days Until Ready',
+                      vacateType: 'Vacate Type',
+                      futureMoveInDate: 'Move In Date',
+                      comments: 'Comments'
+                    }).map(([key, label]) => (
                       <label key={key} className="flex items-center">
                         <input
                           type="checkbox"
-                          checked={checked}
+                          checked={pdfOptions.includeColumns[key]}
                           onChange={(e) => setPdfOptions({
-                            ...pdfOptions, 
+                            ...pdfOptions,
                             includeColumns: {...pdfOptions.includeColumns, [key]: e.target.checked}
                           })}
                           className="mr-2"
                         />
-                        <span className="text-xs capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                        <span className="text-xs">{label}</span>
                       </label>
                     ))}
                   </div>
                 </div>
               </div>
-              
               <div className="mt-4 flex gap-2">
                 <button
                   onClick={generatePDF}
-                  className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
+                  className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
                 >
-                  Generate PDF
+                  🖨️ Open Print Preview
                 </button>
                 <button
                   onClick={() => setShowPdfOptions(false)}
-                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
+                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
                 >
                   Cancel
                 </button>
               </div>
+              <p className="text-xs text-gray-600 mt-2">
+                💡 This will open a new window with print-optimized formatting. Use your browser's Print → Save as PDF option.
+              </p>
             </div>
           )}
 
@@ -1106,37 +1252,6 @@ const RRReportProcessor = () => {
                         }`}>{prop}</span>
                       </label>
                     ))}
-                  </div>
-                </div>
-
-                {/* Filter Presets */}
-                <div className="flex gap-4 items-center">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Save Current Filter</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="Preset name..."
-                        onKeyPress={(e) => {
-                          if (e.key === 'Enter' && e.target.value.trim()) {
-                            saveFilterPreset(e.target.value.trim());
-                            e.target.value = '';
-                          }
-                        }}
-                        className="px-2 py-1 border border-gray-300 rounded text-sm"
-                      />
-                      <span className="text-xs text-gray-500 self-center">Press Enter to save</span>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Load Filter Preset</label>
-                    <input
-                      type="file"
-                      accept=".json"
-                      onChange={loadFilterPreset}
-                      className="text-sm"
-                    />
                   </div>
                 </div>
               </div>
