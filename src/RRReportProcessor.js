@@ -1,4 +1,90 @@
-import React, { useState, useEffect } from 'react';
+const exportToExcel = () => {
+    if (!cleanedData) return;
+
+    const workbook = XLSX.utils.book_new();
+
+    // Prepare data for export
+    const exportData = [
+      [
+        'Unit Code', 'Unit Type', 'Unit Description', 'Rental Type', 'Vacant As Of', 'Vacate Type',
+        'Future Move In Date', 'Work Order', 'Asking Rent', 'Make Ready Notes', 'Estimated Ready Date',
+        'Rent Ready', 'Actual Ready Date', 'Job Code', 'Comments', 'Property', 'Category', 'Status',
+        'Days Until Ready', 'Has Issues'
+      ],
+      ...sortedAndFilteredData().map(unit => [
+        unit.unitCode,
+        unit.unitType,
+        unit.unitDescription,
+        unit.rentalType,
+        unit.vacantAsOf,
+        unit.vacateType,
+        unit.futureMoveInDate,
+        unit.workOrder,
+        unit.askingRent,
+        unit.makeReadyNotes,
+        unit.estimatedReadyDate ? unit.estimatedReadyDate.toLocaleDateString() : '',
+        unit.rentReady,
+        unit.actualReadyDate ? (unit.actualReadyDate instanceof Date ? 
+          unit.actualReadyDate.toLocaleDateString() : 
+          unit.actualReadyDate.toString()) : '',
+        unit.jobCode,
+        unit.comments,
+        unit.property,
+        unit.category,
+        unit.status,
+        unit.daysUntilReady,
+        unit.hasIssues ? 'Yes' : 'No'
+      ])
+    ];
+
+    const worksheet = XLSX.utils.aoa_to_sheet(exportData);
+
+    // Set column widths for better readability
+    const columnWidths = [
+      { wch: 12 }, // Unit Code
+      { wch: 15 }, // Unit Type
+      { wch: 25 }, // Unit Description
+      { wch: 15 }, // Rental Type
+      { wch: 12 }, // Vacant As Of
+      { wch: 12 }, // Vacate Type
+      { wch: 15 }, // Future Move In Date
+      { wch: 12 }, // Work Order
+      { wch: 12 }, // Asking Rent
+      { wch: 20 }, // Make Ready Notes
+      { wch: 15 }, // Estimated Ready Date
+      { wch: 10 }, // Rent Ready
+      { wch: 15 }, // Actual Ready Date
+      { wch: 12 }, // Job Code
+      { wch: 30 }, // Comments
+      { wch: 10 }, // Property
+      { wch: 25 }, // Category
+      { wch: 12 }, // Status
+      { wch: 12 }, // Days Until Ready
+      { wch: 10 }  // Has Issues
+    ];
+    
+    worksheet['!cols'] = columnWidths;
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'RR Dashboard');
+
+    const excelBuffer = XLSX.write(workbook, { 
+      bookType: 'xlsx', 
+      type: 'array'
+    });
+
+    const blob = new Blob([excelBuffer], { 
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+
+    // Clean up previous URL
+    if (downloadUrl) {
+      window.URL.revokeObjectURL(downloadUrl);
+    }
+
+    // Create persistent download URL
+    const url = window.URL.createObjectURL(blob);
+    setDownloadUrl(url);
+  };import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 
 const RRReportProcessor = () => {
@@ -719,40 +805,6 @@ const RRReportProcessor = () => {
     // Create persistent download URL
     const url = window.URL.createObjectURL(blob);
     setDownloadUrl(url);
-  };
-
-  // Helper function to get category emojis
-  const getCategoryEmoji = (category) => {
-    const emojiMap = {
-      'Available & Rent Ready': '🟢',
-      'Available & Rent Ready (Flagged)': '🟡',
-      'Available in Next 30 Days': '🔵',
-      'Available in Next 31-60 Days': '🟣',
-      'Available in More than 60 Days': '⚪',
-      'Already Rented': '🟠',
-      'Down/Hold/Model/Development': '🔴',
-      'Unknown': '❓'
-    };
-    return emojiMap[category] || '❓';
-  };
-
-  // Helper function to describe issues
-  const getIssueDescription = (unit) => {
-    const issues = [];
-    
-    if (unit.rentReady === 'yes' && (!unit.actualReadyDate || unit.actualReadyDate === '')) {
-      issues.push('Marked as rent ready but missing actual ready date');
-    }
-    
-    if (unit.futureMoveInDate && unit.futureMoveInDate.toString().trim() !== '' && unit.rentReady !== 'yes') {
-      issues.push('Unit is rented but not marked as rent ready');
-    }
-    
-    if (unit.category === 'Down/Hold/Model/Development' && unit.rentReady === 'yes') {
-      issues.push('Development/Hold unit marked as rent ready');
-    }
-    
-    return issues.join('; ') || 'Data quality issue detected';
   };
 
   const handleFileUpload = (event) => {
