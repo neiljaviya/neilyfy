@@ -1,90 +1,4 @@
-const exportToExcel = () => {
-    if (!cleanedData) return;
-
-    const workbook = XLSX.utils.book_new();
-
-    // Prepare data for export
-    const exportData = [
-      [
-        'Unit Code', 'Unit Type', 'Unit Description', 'Rental Type', 'Vacant As Of', 'Vacate Type',
-        'Future Move In Date', 'Work Order', 'Asking Rent', 'Make Ready Notes', 'Estimated Ready Date',
-        'Rent Ready', 'Actual Ready Date', 'Job Code', 'Comments', 'Property', 'Category', 'Status',
-        'Days Until Ready', 'Has Issues'
-      ],
-      ...sortedAndFilteredData().map(unit => [
-        unit.unitCode,
-        unit.unitType,
-        unit.unitDescription,
-        unit.rentalType,
-        unit.vacantAsOf,
-        unit.vacateType,
-        unit.futureMoveInDate,
-        unit.workOrder,
-        unit.askingRent,
-        unit.makeReadyNotes,
-        unit.estimatedReadyDate ? unit.estimatedReadyDate.toLocaleDateString() : '',
-        unit.rentReady,
-        unit.actualReadyDate ? (unit.actualReadyDate instanceof Date ? 
-          unit.actualReadyDate.toLocaleDateString() : 
-          unit.actualReadyDate.toString()) : '',
-        unit.jobCode,
-        unit.comments,
-        unit.property,
-        unit.category,
-        unit.status,
-        unit.daysUntilReady,
-        unit.hasIssues ? 'Yes' : 'No'
-      ])
-    ];
-
-    const worksheet = XLSX.utils.aoa_to_sheet(exportData);
-
-    // Set column widths for better readability
-    const columnWidths = [
-      { wch: 12 }, // Unit Code
-      { wch: 15 }, // Unit Type
-      { wch: 25 }, // Unit Description
-      { wch: 15 }, // Rental Type
-      { wch: 12 }, // Vacant As Of
-      { wch: 12 }, // Vacate Type
-      { wch: 15 }, // Future Move In Date
-      { wch: 12 }, // Work Order
-      { wch: 12 }, // Asking Rent
-      { wch: 20 }, // Make Ready Notes
-      { wch: 15 }, // Estimated Ready Date
-      { wch: 10 }, // Rent Ready
-      { wch: 15 }, // Actual Ready Date
-      { wch: 12 }, // Job Code
-      { wch: 30 }, // Comments
-      { wch: 10 }, // Property
-      { wch: 25 }, // Category
-      { wch: 12 }, // Status
-      { wch: 12 }, // Days Until Ready
-      { wch: 10 }  // Has Issues
-    ];
-    
-    worksheet['!cols'] = columnWidths;
-
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'RR Dashboard');
-
-    const excelBuffer = XLSX.write(workbook, { 
-      bookType: 'xlsx', 
-      type: 'array'
-    });
-
-    const blob = new Blob([excelBuffer], { 
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    });
-
-    // Clean up previous URL
-    if (downloadUrl) {
-      window.URL.revokeObjectURL(downloadUrl);
-    }
-
-    // Create persistent download URL
-    const url = window.URL.createObjectURL(blob);
-    setDownloadUrl(url);
-  };import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 
 const RRReportProcessor = () => {
@@ -626,20 +540,37 @@ const RRReportProcessor = () => {
     const workbook = XLSX.utils.book_new();
     const filteredData = sortedAndFilteredData();
 
-    // Prepare data for export with enhanced formatting indicators
-    const exportData = [
-      // Title row
-      [`📊 RR Report Dashboard - Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`],
-      [''], // Empty row
-      // Headers with emojis for better visual separation
-      [
-        '🏠 Unit Code', '🏗️ Unit Type', '📝 Description', '🏢 Rental Type', '📅 Vacant As Of', '🚪 Vacate Type',
-        '📆 Future Move In', '🔧 Work Order', '💰 Asking Rent', '📋 Make Ready Notes', '⏰ Est. Ready Date',
-        '✅ Rent Ready', '📅 Actual Ready', '🔢 Job Code', '💬 Comments', '🏘️ Property', '🏷️ Category', '📊 Status',
-        '⏳ Days Until Ready', '⚠️ Has Issues'
-      ],
-      // Data rows with visual indicators
-      ...filteredData.map(unit => [
+    // Define color schemes to match dashboard
+    const categoryColors = {
+      'Available & Rent Ready': { bg: 'FFD4EDDA', text: 'FF155724' },
+      'Available & Rent Ready (Flagged)': { bg: 'FFFFF3CD', text: 'FF856404' },
+      'Available in Next 30 Days': { bg: 'FFCCE5FF', text: 'FF004085' },
+      'Available in Next 31-60 Days': { bg: 'FFE2D5F0', text: 'FF6F42C1' },
+      'Available in More than 60 Days': { bg: 'FFF8F9FA', text: 'FF6C757D' },
+      'Already Rented': { bg: 'FFFFD6CC', text: 'FFFD7E14' },
+      'Down/Hold/Model/Development': { bg: 'FFF8D7DA', text: 'FF721C24' },
+      'Unknown': { bg: 'FFFFF3CD', text: 'FF856404' }
+    };
+
+    // Prepare headers
+    const headers = [
+      'Unit Code', 'Unit Type', 'Unit Description', 'Rental Type', 'Vacant As Of', 'Vacate Type',
+      'Future Move In Date', 'Work Order', 'Asking Rent', 'Make Ready Notes', 'Estimated Ready Date',
+      'Rent Ready', 'Actual Ready Date', 'Job Code', 'Comments', 'Property', 'Category', 'Status',
+      'Days Until Ready', 'Has Issues'
+    ];
+
+    // Create worksheet data
+    const wsData = [];
+    
+    // Add title row
+    wsData.push(['RR Report Dashboard - Generated on ' + new Date().toLocaleDateString()]);
+    wsData.push(['']); // Empty row
+    wsData.push(headers);
+
+    // Add data rows
+    filteredData.forEach(unit => {
+      wsData.push([
         unit.unitCode,
         unit.unitType,
         unit.unitDescription,
@@ -651,146 +582,237 @@ const RRReportProcessor = () => {
         unit.askingRent,
         unit.makeReadyNotes,
         unit.estimatedReadyDate ? unit.estimatedReadyDate.toLocaleDateString() : '',
-        // Enhanced Rent Ready with visual indicator
-        unit.rentReady === 'yes' ? '✅ YES' : '❌ NO',
+        unit.rentReady,
         unit.actualReadyDate ? (unit.actualReadyDate instanceof Date ? 
           unit.actualReadyDate.toLocaleDateString() : 
           unit.actualReadyDate.toString()) : '',
         unit.jobCode,
         unit.comments,
-        // Property with visual indicator
-        `🏘️ ${unit.property}`,
-        // Category with status emoji
-        `${getCategoryEmoji(unit.category)} ${unit.category}`,
+        unit.property,
+        unit.category,
         unit.status,
-        // Days with visual indicator
-        unit.daysUntilReady !== null ? 
-          (unit.daysUntilReady <= 0 ? '🟢 Ready' : 
-           unit.daysUntilReady <= 30 ? `🔵 ${unit.daysUntilReady}d` : 
-           `⚪ ${unit.daysUntilReady}d`) : '—',
-        // Has Issues with clear indicator
-        unit.hasIssues ? '🚨 YES' : '✅ NO'
-      ])
-    ];
+        unit.daysUntilReady,
+        unit.hasIssues ? 'Yes' : 'No'
+      ]);
+    });
 
-    const worksheet = XLSX.utils.aoa_to_sheet(exportData);
+    // Create worksheet
+    const worksheet = XLSX.utils.aoa_to_sheet(wsData);
 
-    // Set column widths for better readability
+    // Define styles
+    const headerStyle = {
+      font: { bold: true, color: { rgb: "FFFFFF" } },
+      fill: { fgColor: { rgb: "FF2563EB" } },
+      alignment: { horizontal: "center", vertical: "center" },
+      border: {
+        top: { style: "thin", color: { rgb: "FF000000" } },
+        bottom: { style: "thin", color: { rgb: "FF000000" } },
+        left: { style: "thin", color: { rgb: "FF000000" } },
+        right: { style: "thin", color: { rgb: "FF000000" } }
+      }
+    };
+
+    const titleStyle = {
+      font: { bold: true, size: 16, color: { rgb: "FF2563EB" } },
+      alignment: { horizontal: "center", vertical: "center" }
+    };
+
+    const dataStyle = {
+      alignment: { horizontal: "left", vertical: "center" },
+      border: {
+        top: { style: "thin", color: { rgb: "FFE0E0E0" } },
+        bottom: { style: "thin", color: { rgb: "FFE0E0E0" } },
+        left: { style: "thin", color: { rgb: "FFE0E0E0" } },
+        right: { style: "thin", color: { rgb: "FFE0E0E0" } }
+      }
+    };
+
+    const flaggedRowStyle = {
+      ...dataStyle,
+      fill: { fgColor: { rgb: "FFFFEBEE" } }
+    };
+
+    const currencyStyle = {
+      ...dataStyle,
+      numFmt: "$#,##0"
+    };
+
+    // Apply styles to cells
+    const range = XLSX.utils.decode_range(worksheet['!ref']);
+    
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+        
+        if (!worksheet[cellAddress]) continue;
+        
+        // Title row (row 0)
+        if (R === 0) {
+          worksheet[cellAddress].s = titleStyle;
+        }
+        // Header row (row 2)
+        else if (R === 2) {
+          worksheet[cellAddress].s = headerStyle;
+        }
+        // Data rows (row 3+)
+        else if (R >= 3) {
+          const dataRowIndex = R - 3;
+          const unit = filteredData[dataRowIndex];
+          
+          if (unit) {
+            // Base style - flagged or normal
+            let cellStyle = unit.hasIssues ? { ...flaggedRowStyle } : { ...dataStyle };
+            
+            // Special formatting for specific columns
+            if (C === 8) { // Asking Rent column
+              cellStyle = { ...cellStyle, numFmt: "$#,##0" };
+            }
+            
+            // Category column (index 16) - add category colors
+            if (C === 16 && categoryColors[unit.category]) {
+              cellStyle = {
+                ...cellStyle,
+                fill: { fgColor: { rgb: categoryColors[unit.category].bg.replace('FF', '') } },
+                font: { color: { rgb: categoryColors[unit.category].text.replace('FF', '') }, bold: true }
+              };
+            }
+            
+            // Property column (index 15) - blue background
+            if (C === 15) {
+              cellStyle = {
+                ...cellStyle,
+                fill: { fgColor: { rgb: "CCE5FF" } },
+                font: { color: { rgb: "004085" }, bold: true }
+              };
+            }
+            
+            // Rent Ready column (index 11) - green/gray background
+            if (C === 11) {
+              const isReady = unit.rentReady === 'yes';
+              cellStyle = {
+                ...cellStyle,
+                fill: { fgColor: { rgb: isReady ? "D4EDDA" : "F8F9FA" } },
+                font: { color: { rgb: isReady ? "155724" : "6C757D" }, bold: true }
+              };
+            }
+            
+            // Has Issues column (index 19) - highlight Yes values
+            if (C === 19 && unit.hasIssues) {
+              cellStyle = {
+                ...cellStyle,
+                fill: { fgColor: { rgb: "FFEBEE" } },
+                font: { color: { rgb: "C62828" }, bold: true }
+              };
+            }
+            
+            // Days Until Ready column (index 18)
+            if (C === 18 && unit.daysUntilReady !== null) {
+              let daysColor = "F8F9FA"; // Default gray
+              let textColor = "6C757D";
+              
+              if (unit.daysUntilReady <= 0) {
+                daysColor = "D4EDDA"; // Green for ready
+                textColor = "155724";
+              } else if (unit.daysUntilReady <= 30) {
+                daysColor = "CCE5FF"; // Blue for soon
+                textColor = "004085";
+              }
+              
+              cellStyle = {
+                ...cellStyle,
+                fill: { fgColor: { rgb: daysColor } },
+                font: { color: { rgb: textColor }, bold: true }
+              };
+            }
+            
+            worksheet[cellAddress].s = cellStyle;
+          }
+        }
+      }
+    }
+
+    // Set column widths
     const columnWidths = [
-      { wch: 15 }, // Unit Code
-      { wch: 18 }, // Unit Type
-      { wch: 30 }, // Unit Description
-      { wch: 18 }, // Rental Type
-      { wch: 15 }, // Vacant As Of
-      { wch: 15 }, // Vacate Type
-      { wch: 18 }, // Future Move In Date
-      { wch: 15 }, // Work Order
-      { wch: 15 }, // Asking Rent
-      { wch: 25 }, // Make Ready Notes
-      { wch: 18 }, // Estimated Ready Date
-      { wch: 15 }, // Rent Ready
-      { wch: 18 }, // Actual Ready Date
-      { wch: 15 }, // Job Code
-      { wch: 35 }, // Comments
-      { wch: 15 }, // Property
-      { wch: 35 }, // Category
-      { wch: 15 }, // Status
-      { wch: 18 }, // Days Until Ready
-      { wch: 12 }  // Has Issues
+      { wch: 12 }, // Unit Code
+      { wch: 15 }, // Unit Type
+      { wch: 25 }, // Unit Description
+      { wch: 15 }, // Rental Type
+      { wch: 12 }, // Vacant As Of
+      { wch: 12 }, // Vacate Type
+      { wch: 15 }, // Future Move In Date
+      { wch: 12 }, // Work Order
+      { wch: 12 }, // Asking Rent
+      { wch: 20 }, // Make Ready Notes
+      { wch: 15 }, // Estimated Ready Date
+      { wch: 10 }, // Rent Ready
+      { wch: 15 }, // Actual Ready Date
+      { wch: 12 }, // Job Code
+      { wch: 30 }, // Comments
+      { wch: 10 }, // Property
+      { wch: 25 }, // Category
+      { wch: 12 }, // Status
+      { wch: 12 }, // Days Until Ready
+      { wch: 10 }  // Has Issues
     ];
     
     worksheet['!cols'] = columnWidths;
 
     // Merge title cell across all columns
-    const headerLength = exportData[2].length;
     worksheet['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: headerLength - 1 } }
+      { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } }
     ];
 
-    // Set up auto-filter on headers
-    worksheet['!autofilter'] = { ref: XLSX.utils.encode_range({
-      s: { c: 0, r: 2 },
-      e: { c: headerLength - 1, r: 2 + filteredData.length }
-    })};
-
-    // Freeze panes at header row
+    // Freeze header row
     worksheet['!freeze'] = { xSplit: 0, ySplit: 3 };
 
+    // Add to workbook
     XLSX.utils.book_append_sheet(workbook, worksheet, 'RR Dashboard');
 
-    // Create a summary sheet with better formatting
-    const stats = getCategoryStats();
+    // Add summary sheet with statistics
     const summaryData = [
-      ['📊 RR REPORT SUMMARY'],
+      ['RR Report Summary'],
       [''],
-      [`📅 Generated: ${new Date().toLocaleString()}`],
-      [`📋 Total Units Processed: ${cleanedData.length}`],
-      [`🎯 Units Shown (After Filters): ${filteredData.length}`],
-      [`⚠️ Flagged Units: ${filteredData.filter(u => u.hasIssues).length}`],
-      [''],
-      ['🏷️ CATEGORY BREAKDOWN'],
       ['Category', 'Count', 'Percentage'],
-      ...Object.entries(stats).map(([category, count]) => [
-        `${getCategoryEmoji(category)} ${category}`,
+      ...Object.entries(getCategoryStats()).map(([category, count]) => [
+        category,
         count,
         `${((count / cleanedData.length) * 100).toFixed(1)}%`
       ]),
       [''],
-      ['🚨 FLAGGED UNITS BREAKDOWN'],
-      ['Issue Type', 'Count'],
-      [`Ready = "Yes" but no actual date`, filteredData.filter(u => u.rentReady === 'yes' && (!u.actualReadyDate || u.actualReadyDate === '')).length],
-      [`Rented but not marked ready`, filteredData.filter(u => u.futureMoveInDate && u.futureMoveInDate.toString().trim() !== '' && u.rentReady !== 'yes').length],
-      [`Development but marked ready`, filteredData.filter(u => u.category === 'Down/Hold/Model/Development' && u.rentReady === 'yes').length],
-      [''],
-      ['📈 AVAILABILITY BREAKDOWN'],
-      [`🟢 Ready Now`, filteredData.filter(u => u.category === 'Available & Rent Ready').length],
-      [`🟡 Ready (Flagged)`, filteredData.filter(u => u.category === 'Available & Rent Ready (Flagged)').length],
-      [`🔵 Ready in 30 Days`, filteredData.filter(u => u.category === 'Available in Next 30 Days').length],
-      [`🟣 Ready in 31-60 Days`, filteredData.filter(u => u.category === 'Available in Next 31-60 Days').length],
-      [`⚪ Ready in 60+ Days`, filteredData.filter(u => u.category === 'Available in More than 60 Days').length],
-      [`🟠 Already Rented`, filteredData.filter(u => u.category === 'Already Rented').length],
-      [`🔴 Down/Hold/Development`, filteredData.filter(u => u.category === 'Down/Hold/Model/Development').length]
+      ['Total Units', cleanedData.length],
+      ['Filtered Units', filteredData.length],
+      ['Flagged Units', filteredData.filter(u => u.hasIssues).length],
+      ['Ready Units', filteredData.filter(u => u.category === 'Available & Rent Ready').length]
     ];
 
     const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-    summarySheet['!cols'] = [{ wch: 40 }, { wch: 12 }, { wch: 12 }];
     
-    // Merge title
-    summarySheet['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }
-    ];
-
-    XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary & Stats');
-
-    // Create a "Flagged Units Only" sheet for easy review
-    const flaggedUnits = filteredData.filter(u => u.hasIssues);
-    if (flaggedUnits.length > 0) {
-      const flaggedData = [
-        ['🚨 FLAGGED UNITS - DATA QUALITY ISSUES'],
-        [''],
-        ['🏠 Unit', '🏘️ Property', '🏷️ Category', '✅ Rent Ready', '📅 Actual Ready', '💬 Issue Description'],
-        ...flaggedUnits.map(unit => [
-          unit.unitCode,
-          unit.property,
-          unit.category,
-          unit.rentReady === 'yes' ? '✅ YES' : '❌ NO',
-          unit.actualReadyDate || '❌ MISSING',
-          getIssueDescription(unit)
-        ])
-      ];
-
-      const flaggedSheet = XLSX.utils.aoa_to_sheet(flaggedData);
-      flaggedSheet['!cols'] = [
-        { wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 50 }
-      ];
-      flaggedSheet['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
-      
-      XLSX.utils.book_append_sheet(workbook, flaggedSheet, '🚨 Flagged Units');
+    // Style summary sheet
+    const summaryRange = XLSX.utils.decode_range(summarySheet['!ref']);
+    for (let R = summaryRange.s.r; R <= summaryRange.e.r; ++R) {
+      for (let C = summaryRange.s.c; C <= summaryRange.e.c; ++C) {
+        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+        if (!summarySheet[cellAddress]) continue;
+        
+        if (R === 0) {
+          summarySheet[cellAddress].s = titleStyle;
+        } else if (R === 2) {
+          summarySheet[cellAddress].s = headerStyle;
+        } else {
+          summarySheet[cellAddress].s = dataStyle;
+        }
+      }
     }
+    
+    summarySheet['!cols'] = [{ wch: 30 }, { wch: 10 }, { wch: 12 }];
+    summarySheet['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }];
+    
+    XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
 
     const excelBuffer = XLSX.write(workbook, { 
       bookType: 'xlsx', 
-      type: 'array'
+      type: 'array',
+      cellStyles: true
     });
 
     const blob = new Blob([excelBuffer], { 
