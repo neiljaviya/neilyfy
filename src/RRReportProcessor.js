@@ -1,7 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import { 
+  Mail, 
+  FileSpreadsheet,
+  Bold,
+  Italic,
+  List,
+  Type,
+  Palette,
+  Copy,
+  Check,
+  Eye,
+  Code,
+  Sparkles,
+  AlertCircle,
+  ChevronRight
+} from 'lucide-react';
 
-const RRReportProcessor = () => {
+const RRDashboardWithEmailFormatter = () => {
+  // Active tab state
+  const [activeTab, setActiveTab] = useState('dashboard');
+  
+  // Dashboard states (from V6)
   const [file, setFile] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [status, setStatus] = useState('');
@@ -45,6 +65,77 @@ const RRReportProcessor = () => {
       futureMoveInDate: false
     }
   });
+  
+  // Email Formatter states
+  const [emailContent, setEmailContent] = useState('');
+  const [formattedOutput, setFormattedOutput] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState('');
+  
+  // Email templates
+  const emailTemplates = {
+    inquiry: {
+      name: 'Initial Inquiry Response',
+      template: `Thank you for your inquiry!
+
+***** NOW OFFERING!!! 2 MONTHS FREE!!!!!!!!! *****
+(Select units, limited time offer, move in by [DATE] to qualify)
+
+I'm [NAME], the Leasing Consultant for [PROPERTIES].
+
+=== CURRENT AVAILABILITY & PRICING ===
+
+>> AVAILABLE NOW (Immediate Move-in):
+• 1-bedroom suites starting at $[PRICE]/month
+• 2-bedroom suites starting at $[PRICE]/month
+
+>> [MONTH] MOVE-IN READY:
+• Bachelor suites starting at $[PRICE]/month
+• 1-bedroom suites starting at $[PRICE]/month
+• 2-bedroom suites starting at $[PRICE]/month
+
+⚠️ IMPORTANT: Availability depends on units not being leased by the time you contact us.
+💧 UTILITIES: Water and heat included, hydro extra.
+📱 CONTACT: Virtual tours available! Call me directly at [PHONE].
+
+Looking forward to seeing you soon!`
+    },
+    approval: {
+      name: 'Approval Welcome Email',
+      template: `Dear [TENANT NAME],
+
+🏠 Welcome to Your New Home at Unit [NUMBER], [ADDRESS]!
+
+You have officially been APPROVED! 
+
+📋 PRE-MOVE-IN CHECKLIST
+
+✅ STEP 1: TENANT INSURANCE (Required)
+• $2,000,000 personal liability coverage
+• Effective date must match key pickup date
+• Recommended: Apollo Tenant Insurance
+
+✅ STEP 2: UTILITY SETUP (Required)
+• Provider: [UTILITY PROVIDER]
+• Submit confirmation with name, address, start date
+
+✅ STEP 3: RENT CAFÉ APP
+• Registration code: T-CODE: [CODE]
+
+✅ STEP 4: FINANCIAL REQUIREMENTS
+• Last Month's Rent: $[AMOUNT]
+• Key/Fob Deposit: $[AMOUNT]
+• Less Application Deposit: -$500
+• TOTAL DUE: $[AMOUNT]
+
+Contact me at [PHONE] with questions!`
+    },
+    custom: {
+      name: 'Custom Message',
+      template: ''
+    }
+  };
 
   // Cleanup
   useEffect(() => {
@@ -55,6 +146,7 @@ const RRReportProcessor = () => {
     };
   }, [downloadUrl]);
 
+  // Helper functions from V6
   const parseDate = (dateStr) => {
     if (!dateStr || dateStr === '') return null;
     try {
@@ -78,9 +170,7 @@ const RRReportProcessor = () => {
     if (!unitType) return '';
     
     const trimmed = unitType.toString().trim();
-    // Remove leading zeros
     const withoutLeadingZeros = trimmed.replace(/^0+/, '');
-    // Extract property code pattern: digits followed by letter(s), before any additional digits
     const match = withoutLeadingZeros.match(/^(\d+[a-z]+)/i);
     
     return match ? match[1] : '';
@@ -89,90 +179,17 @@ const RRReportProcessor = () => {
   const extractBedroomCount = (description) => {
     const desc = description.toLowerCase();
     
-    // Look for patterns like "1 bedroom", "2 bedroom", "3-bedroom", etc.
     const match = desc.match(/(\d+)[\s-]*bedroom/);
     if (match) return parseInt(match[1]);
     
-    // Handle special cases
     if (desc.includes('bachelor') || desc.includes('studio') || desc.includes('0 bedroom')) return 0;
     
-    // If no bedroom info found, put at end
     return 999;
-  };
-
-  const cleanAndProcessData = (jsonData) => {
-    const cleanedUnits = [];
-    
-    // Process each row to extract units
-    for (let i = 6; i < jsonData.length; i++) {
-      const row = jsonData[i];
-      const firstCell = (row[0] || '').toString().trim();
-      
-      // Skip empty rows
-      if (!row.some(cell => cell && cell.toString().trim() !== '')) continue;
-      
-      // Check if this is a "Total" summary row - skip it
-      if (firstCell.toLowerCase().includes('total')) {
-        continue;
-      }
-      
-      // If we have a unit code (alphanumeric combination), this is a unit row
-      // BUT skip if it's just a property header (no unit data)
-      if (firstCell.match(/^\s*[A-Z0-9-]+\s*$/i)) {
-        // Skip if this looks like a property header row (no unit type or other data)
-        const hasUnitData = row[1] && row[1].toString().trim() !== '' && // Has Unit Type
-                           (row[2] && row[2].toString().trim() !== '' || // Has Description
-                            row[8] && parseFloat(row[8]) > 0);            // Has Rent > 0
-        
-        if (!hasUnitData) {
-          continue; // Skip property header rows
-        }
-
-        // Extract property from Unit Type column (row[1])
-        const propertyCode = extractPropertyFromUnitType(row[1]);
-        
-        const unitData = {
-          unitCode: firstCell,                                    // Column A
-          unitType: row[1] || '',                                // Column B  
-          unitDescription: row[2] || '',                         // Column C
-          rentalType: row[3] || '',                             // Column D
-          vacantAsOf: row[4] || '',                             // Column E
-          vacateType: row[5] || '',                             // Column F
-          futureMoveInDate: row[6] || '',                       // Column G
-          workOrder: row[7] || '',                              // Column H
-          askingRent: parseFloat(row[8]) || 0,                  // Column I
-          makeReadyNotes: row[9] || '',                         // Column J
-          estimatedReadyDate: parseDate(row[10]),               // Column K
-          rentReady: (row[11] || '').toString().toLowerCase(),   // Column L
-          actualReadyDate: row[12] || '',                       // Column M (keep original value)
-          jobCode: row[13] || '',                               // Column N
-          comments: row[14] || '',                              // Column O
-          property: propertyCode,
-          
-          // Derived fields
-          category: '',
-          status: '',
-          daysUntilReady: 0,
-          hasIssues: false
-        };
-        
-        // Categorize the unit
-        unitData.category = categorizeUnit(unitData);
-        unitData.status = getUnitStatus(unitData);
-        unitData.daysUntilReady = calculateDaysUntilReady(unitData);
-        unitData.hasIssues = checkForIssues(unitData);
-        
-        cleanedUnits.push(unitData);
-      }
-    }
-    
-    return cleanedUnits;
   };
 
   const categorizeUnit = (unit) => {
     const today = new Date();
     
-    // Check for Down/Hold/Model/Development
     const rentalType = unit.rentalType.toLowerCase();
     const comments = unit.comments.toLowerCase();
     if (rentalType.includes('development') || rentalType.includes('model') || 
@@ -182,14 +199,11 @@ const RRReportProcessor = () => {
       return 'Down/Hold/Model/Development';
     }
     
-    // Check if already rented (has future move-in date)
     if (unit.futureMoveInDate && unit.futureMoveInDate.toString().trim() !== '') {
       return 'Already Rented';
     }
     
-    // Check if rent ready
     if (unit.rentReady === 'yes') {
-      // Simple check: if actual ready date exists and is not empty
       const hasActualReadyDate = unit.actualReadyDate && 
                                 unit.actualReadyDate !== '' && 
                                 unit.actualReadyDate !== null;
@@ -201,7 +215,6 @@ const RRReportProcessor = () => {
       }
     }
     
-    // Check estimated ready date for timeline categories
     if (unit.estimatedReadyDate) {
       const diffTime = unit.estimatedReadyDate - today;
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -224,18 +237,14 @@ const RRReportProcessor = () => {
   const calculateDaysUntilReady = (unit) => {
     const today = new Date();
     
-    // If rent ready = "yes" and has actual ready date, use actual ready date
     if (unit.rentReady === 'yes' && unit.actualReadyDate && unit.actualReadyDate !== '' && unit.actualReadyDate !== null) {
       let actualDate;
       
-      // Handle different formats of actual ready date
       if (unit.actualReadyDate instanceof Date) {
         actualDate = unit.actualReadyDate;
       } else {
-        // Try to parse string date
         actualDate = new Date(unit.actualReadyDate);
         if (isNaN(actualDate)) {
-          // If parsing fails, fall back to estimated date
           if (!unit.estimatedReadyDate) return null;
           const diffTime = unit.estimatedReadyDate - today;
           return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -246,7 +255,6 @@ const RRReportProcessor = () => {
       return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     }
     
-    // Otherwise use estimated ready date
     if (!unit.estimatedReadyDate) return null;
     const diffTime = unit.estimatedReadyDate - today;
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -261,22 +269,78 @@ const RRReportProcessor = () => {
     
     const isDownHoldModel = unit.category === 'Down/Hold/Model/Development';
     
-    // Flag if rent ready is "yes" but actual ready date is empty
     if (unit.rentReady === 'yes' && !hasActualReadyDate) {
       return true;
     }
     
-    // Flag if unit is rented (has future move-in date) but not rent ready
     if (hasMoveinDate && unit.rentReady !== 'yes') {
       return true;
     }
     
-    // Flag if unit is Down/Hold/Model/Development but marked as rent ready
     if (isDownHoldModel && unit.rentReady === 'yes') {
       return true;
     }
     
     return false;
+  };
+
+  const cleanAndProcessData = (jsonData) => {
+    const cleanedUnits = [];
+    
+    for (let i = 6; i < jsonData.length; i++) {
+      const row = jsonData[i];
+      const firstCell = (row[0] || '').toString().trim();
+      
+      if (!row.some(cell => cell && cell.toString().trim() !== '')) continue;
+      
+      if (firstCell.toLowerCase().includes('total')) {
+        continue;
+      }
+      
+      if (firstCell.match(/^\s*[A-Z0-9-]+\s*$/i)) {
+        const hasUnitData = row[1] && row[1].toString().trim() !== '' && 
+                           (row[2] && row[2].toString().trim() !== '' || 
+                            row[8] && parseFloat(row[8]) > 0);
+        
+        if (!hasUnitData) {
+          continue;
+        }
+
+        const propertyCode = extractPropertyFromUnitType(row[1]);
+        
+        const unitData = {
+          unitCode: firstCell,
+          unitType: row[1] || '',
+          unitDescription: row[2] || '',
+          rentalType: row[3] || '',
+          vacantAsOf: row[4] || '',
+          vacateType: row[5] || '',
+          futureMoveInDate: row[6] || '',
+          workOrder: row[7] || '',
+          askingRent: parseFloat(row[8]) || 0,
+          makeReadyNotes: row[9] || '',
+          estimatedReadyDate: parseDate(row[10]),
+          rentReady: (row[11] || '').toString().toLowerCase(),
+          actualReadyDate: row[12] || '',
+          jobCode: row[13] || '',
+          comments: row[14] || '',
+          property: propertyCode,
+          category: '',
+          status: '',
+          daysUntilReady: 0,
+          hasIssues: false
+        };
+        
+        unitData.category = categorizeUnit(unitData);
+        unitData.status = getUnitStatus(unitData);
+        unitData.daysUntilReady = calculateDaysUntilReady(unitData);
+        unitData.hasIssues = checkForIssues(unitData);
+        
+        cleanedUnits.push(unitData);
+      }
+    }
+    
+    return cleanedUnits;
   };
 
   const processFile = async (file) => {
@@ -317,7 +381,6 @@ const RRReportProcessor = () => {
     const filteredData = sortedAndFilteredData();
     const stats = getCategoryStats();
 
-    // Create HTML content for printing
     const htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -511,7 +574,6 @@ const RRReportProcessor = () => {
         </div>
 
         <script>
-          // Auto-trigger print dialog after page loads
           window.onload = function() {
             setTimeout(function() {
               window.print();
@@ -522,7 +584,6 @@ const RRReportProcessor = () => {
       </html>
     `;
 
-    // Open new window and write HTML content
     const printWindow = window.open('', '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
     
     if (printWindow) {
@@ -538,39 +599,15 @@ const RRReportProcessor = () => {
     if (!cleanedData) return;
 
     const workbook = XLSX.utils.book_new();
-    const filteredData = sortedAndFilteredData();
 
-    // Define color schemes to match dashboard
-    const categoryColors = {
-      'Available & Rent Ready': { bg: 'FFD4EDDA', text: 'FF155724' },
-      'Available & Rent Ready (Flagged)': { bg: 'FFFFF3CD', text: 'FF856404' },
-      'Available in Next 30 Days': { bg: 'FFCCE5FF', text: 'FF004085' },
-      'Available in Next 31-60 Days': { bg: 'FFE2D5F0', text: 'FF6F42C1' },
-      'Available in More than 60 Days': { bg: 'FFF8F9FA', text: 'FF6C757D' },
-      'Already Rented': { bg: 'FFFFD6CC', text: 'FFFD7E14' },
-      'Down/Hold/Model/Development': { bg: 'FFF8D7DA', text: 'FF721C24' },
-      'Unknown': { bg: 'FFFFF3CD', text: 'FF856404' }
-    };
-
-    // Prepare headers
-    const headers = [
-      'Unit Code', 'Unit Type', 'Unit Description', 'Rental Type', 'Vacant As Of', 'Vacate Type',
-      'Future Move In Date', 'Work Order', 'Asking Rent', 'Make Ready Notes', 'Estimated Ready Date',
-      'Rent Ready', 'Actual Ready Date', 'Job Code', 'Comments', 'Property', 'Category', 'Status',
-      'Days Until Ready', 'Has Issues'
-    ];
-
-    // Create worksheet data
-    const wsData = [];
-    
-    // Add title row
-    wsData.push(['RR Report Dashboard - Generated on ' + new Date().toLocaleDateString()]);
-    wsData.push(['']); // Empty row
-    wsData.push(headers);
-
-    // Add data rows
-    filteredData.forEach(unit => {
-      wsData.push([
+    const exportData = [
+      [
+        'Unit Code', 'Unit Type', 'Unit Description', 'Rental Type', 'Vacant As Of', 'Vacate Type',
+        'Future Move In Date', 'Work Order', 'Asking Rent', 'Make Ready Notes', 'Estimated Ready Date',
+        'Rent Ready', 'Actual Ready Date', 'Job Code', 'Comments', 'Property', 'Category', 'Status',
+        'Days Until Ready', 'Has Issues'
+      ],
+      ...sortedAndFilteredData().map(unit => [
         unit.unitCode,
         unit.unitType,
         unit.unitDescription,
@@ -593,238 +630,25 @@ const RRReportProcessor = () => {
         unit.status,
         unit.daysUntilReady,
         unit.hasIssues ? 'Yes' : 'No'
-      ]);
-    });
-
-    // Create worksheet
-    const worksheet = XLSX.utils.aoa_to_sheet(wsData);
-
-    // Define styles
-    const headerStyle = {
-      font: { bold: true, color: { rgb: "FFFFFF" } },
-      fill: { fgColor: { rgb: "FF2563EB" } },
-      alignment: { horizontal: "center", vertical: "center" },
-      border: {
-        top: { style: "thin", color: { rgb: "FF000000" } },
-        bottom: { style: "thin", color: { rgb: "FF000000" } },
-        left: { style: "thin", color: { rgb: "FF000000" } },
-        right: { style: "thin", color: { rgb: "FF000000" } }
-      }
-    };
-
-    const titleStyle = {
-      font: { bold: true, size: 16, color: { rgb: "FF2563EB" } },
-      alignment: { horizontal: "center", vertical: "center" }
-    };
-
-    const dataStyle = {
-      alignment: { horizontal: "left", vertical: "center" },
-      border: {
-        top: { style: "thin", color: { rgb: "FFE0E0E0" } },
-        bottom: { style: "thin", color: { rgb: "FFE0E0E0" } },
-        left: { style: "thin", color: { rgb: "FFE0E0E0" } },
-        right: { style: "thin", color: { rgb: "FFE0E0E0" } }
-      }
-    };
-
-    const flaggedRowStyle = {
-      ...dataStyle,
-      fill: { fgColor: { rgb: "FFFFEBEE" } }
-    };
-
-    const currencyStyle = {
-      ...dataStyle,
-      numFmt: "$#,##0"
-    };
-
-    // Apply styles to cells
-    const range = XLSX.utils.decode_range(worksheet['!ref']);
-    
-    for (let R = range.s.r; R <= range.e.r; ++R) {
-      for (let C = range.s.c; C <= range.e.c; ++C) {
-        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
-        
-        if (!worksheet[cellAddress]) continue;
-        
-        // Title row (row 0)
-        if (R === 0) {
-          worksheet[cellAddress].s = titleStyle;
-        }
-        // Header row (row 2)
-        else if (R === 2) {
-          worksheet[cellAddress].s = headerStyle;
-        }
-        // Data rows (row 3+)
-        else if (R >= 3) {
-          const dataRowIndex = R - 3;
-          const unit = filteredData[dataRowIndex];
-          
-          if (unit) {
-            // Base style - flagged or normal
-            let cellStyle = unit.hasIssues ? { ...flaggedRowStyle } : { ...dataStyle };
-            
-            // Special formatting for specific columns
-            if (C === 8) { // Asking Rent column
-              cellStyle = { ...cellStyle, numFmt: "$#,##0" };
-            }
-            
-            // Category column (index 16) - add category colors
-            if (C === 16 && categoryColors[unit.category]) {
-              cellStyle = {
-                ...cellStyle,
-                fill: { fgColor: { rgb: categoryColors[unit.category].bg.replace('FF', '') } },
-                font: { color: { rgb: categoryColors[unit.category].text.replace('FF', '') }, bold: true }
-              };
-            }
-            
-            // Property column (index 15) - blue background
-            if (C === 15) {
-              cellStyle = {
-                ...cellStyle,
-                fill: { fgColor: { rgb: "CCE5FF" } },
-                font: { color: { rgb: "004085" }, bold: true }
-              };
-            }
-            
-            // Rent Ready column (index 11) - green/gray background
-            if (C === 11) {
-              const isReady = unit.rentReady === 'yes';
-              cellStyle = {
-                ...cellStyle,
-                fill: { fgColor: { rgb: isReady ? "D4EDDA" : "F8F9FA" } },
-                font: { color: { rgb: isReady ? "155724" : "6C757D" }, bold: true }
-              };
-            }
-            
-            // Has Issues column (index 19) - highlight Yes values
-            if (C === 19 && unit.hasIssues) {
-              cellStyle = {
-                ...cellStyle,
-                fill: { fgColor: { rgb: "FFEBEE" } },
-                font: { color: { rgb: "C62828" }, bold: true }
-              };
-            }
-            
-            // Days Until Ready column (index 18)
-            if (C === 18 && unit.daysUntilReady !== null) {
-              let daysColor = "F8F9FA"; // Default gray
-              let textColor = "6C757D";
-              
-              if (unit.daysUntilReady <= 0) {
-                daysColor = "D4EDDA"; // Green for ready
-                textColor = "155724";
-              } else if (unit.daysUntilReady <= 30) {
-                daysColor = "CCE5FF"; // Blue for soon
-                textColor = "004085";
-              }
-              
-              cellStyle = {
-                ...cellStyle,
-                fill: { fgColor: { rgb: daysColor } },
-                font: { color: { rgb: textColor }, bold: true }
-              };
-            }
-            
-            worksheet[cellAddress].s = cellStyle;
-          }
-        }
-      }
-    }
-
-    // Set column widths
-    const columnWidths = [
-      { wch: 12 }, // Unit Code
-      { wch: 15 }, // Unit Type
-      { wch: 25 }, // Unit Description
-      { wch: 15 }, // Rental Type
-      { wch: 12 }, // Vacant As Of
-      { wch: 12 }, // Vacate Type
-      { wch: 15 }, // Future Move In Date
-      { wch: 12 }, // Work Order
-      { wch: 12 }, // Asking Rent
-      { wch: 20 }, // Make Ready Notes
-      { wch: 15 }, // Estimated Ready Date
-      { wch: 10 }, // Rent Ready
-      { wch: 15 }, // Actual Ready Date
-      { wch: 12 }, // Job Code
-      { wch: 30 }, // Comments
-      { wch: 10 }, // Property
-      { wch: 25 }, // Category
-      { wch: 12 }, // Status
-      { wch: 12 }, // Days Until Ready
-      { wch: 10 }  // Has Issues
-    ];
-    
-    worksheet['!cols'] = columnWidths;
-
-    // Merge title cell across all columns
-    worksheet['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } }
+      ])
     ];
 
-    // Freeze header row
-    worksheet['!freeze'] = { xSplit: 0, ySplit: 3 };
-
-    // Add to workbook
+    const worksheet = XLSX.utils.aoa_to_sheet(exportData);
     XLSX.utils.book_append_sheet(workbook, worksheet, 'RR Dashboard');
-
-    // Add summary sheet with statistics
-    const summaryData = [
-      ['RR Report Summary'],
-      [''],
-      ['Category', 'Count', 'Percentage'],
-      ...Object.entries(getCategoryStats()).map(([category, count]) => [
-        category,
-        count,
-        `${((count / cleanedData.length) * 100).toFixed(1)}%`
-      ]),
-      [''],
-      ['Total Units', cleanedData.length],
-      ['Filtered Units', filteredData.length],
-      ['Flagged Units', filteredData.filter(u => u.hasIssues).length],
-      ['Ready Units', filteredData.filter(u => u.category === 'Available & Rent Ready').length]
-    ];
-
-    const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-    
-    // Style summary sheet
-    const summaryRange = XLSX.utils.decode_range(summarySheet['!ref']);
-    for (let R = summaryRange.s.r; R <= summaryRange.e.r; ++R) {
-      for (let C = summaryRange.s.c; C <= summaryRange.e.c; ++C) {
-        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
-        if (!summarySheet[cellAddress]) continue;
-        
-        if (R === 0) {
-          summarySheet[cellAddress].s = titleStyle;
-        } else if (R === 2) {
-          summarySheet[cellAddress].s = headerStyle;
-        } else {
-          summarySheet[cellAddress].s = dataStyle;
-        }
-      }
-    }
-    
-    summarySheet['!cols'] = [{ wch: 30 }, { wch: 10 }, { wch: 12 }];
-    summarySheet['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }];
-    
-    XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
 
     const excelBuffer = XLSX.write(workbook, { 
       bookType: 'xlsx', 
-      type: 'array',
-      cellStyles: true
+      type: 'array'
     });
 
     const blob = new Blob([excelBuffer], { 
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     });
 
-    // Clean up previous URL
     if (downloadUrl) {
       window.URL.revokeObjectURL(downloadUrl);
     }
 
-    // Create persistent download URL
     const url = window.URL.createObjectURL(blob);
     setDownloadUrl(url);
   };
@@ -838,7 +662,6 @@ const RRReportProcessor = () => {
       setCleanedData(null);
       setShowDashboard(false);
       
-      // Clean up previous download URL
       if (downloadUrl) {
         window.URL.revokeObjectURL(downloadUrl);
         setDownloadUrl(null);
@@ -857,12 +680,10 @@ const RRReportProcessor = () => {
     
     let filtered = [...cleanedData];
     
-    // Apply filters
     if (filters.property) {
       filtered = filtered.filter(unit => unit.property.toLowerCase().includes(filters.property.toLowerCase()));
     }
     
-    // Multi-property filter
     if (filters.properties && filters.properties.length > 0) {
       filtered = filtered.filter(unit => filters.properties.includes(unit.property));
     }
@@ -884,19 +705,16 @@ const RRReportProcessor = () => {
       );
     }
     
-    // Rent range filter
     if (filters.rentMin > 0 || filters.rentMax < 5000) {
       filtered = filtered.filter(unit => 
         unit.askingRent >= filters.rentMin && unit.askingRent <= filters.rentMax
       );
     }
     
-    // Show flagged units only
     if (filters.showFlaggedOnly) {
       filtered = filtered.filter(unit => unit.hasIssues === true);
     }
     
-    // Date range filter
     if (filters.dateRange.start && filters.dateRange.end) {
       const startDate = new Date(filters.dateRange.start);
       const endDate = new Date(filters.dateRange.end);
@@ -916,7 +734,6 @@ const RRReportProcessor = () => {
       });
     }
     
-    // Apply sorting
     if (sortConfig.key) {
       filtered.sort((a, b) => {
         const aVal = a[sortConfig.key];
@@ -927,7 +744,6 @@ const RRReportProcessor = () => {
         return 0;
       });
     } else {
-      // Default sorting by category priority, then by description (bedroom count), then by rent
       const categoryOrder = {
         'Available & Rent Ready': 1,
         'Available & Rent Ready (Flagged)': 2,
@@ -945,13 +761,11 @@ const RRReportProcessor = () => {
         
         if (categoryA !== categoryB) return categoryA - categoryB;
         
-        // Within same category, sort by bedroom count first (0, 1, 2, 3, etc.)
         const bedroomsA = extractBedroomCount(a.unitDescription);
         const bedroomsB = extractBedroomCount(b.unitDescription);
         
         if (bedroomsA !== bedroomsB) return bedroomsA - bedroomsB;
         
-        // Then by rent amount (cheapest to most expensive)
         return a.askingRent - b.askingRent;
       });
     }
@@ -1017,594 +831,885 @@ const RRReportProcessor = () => {
     }
   };
 
+  // Email formatting functions
+  const formatForRhenti = (text) => {
+    let formatted = text;
+    
+    formatted = formatted.replace(/^=== (.+) ===/gm, '<h3 style="color: #2563eb; margin: 20px 0 10px 0;">$1</h3>');
+    formatted = formatted.replace(/^--- (.+) ---/gm, '<h4 style="color: #4b5563; margin: 15px 0 8px 0;">$1</h4>');
+    
+    formatted = formatted.replace(/\*\*\*\*\* (.+?) \*\*\*\*\*/g, '<strong style="color: #dc2626; font-size: 16px;">$1</strong>');
+    formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    
+    formatted = formatted.replace(/^>> (.+)$/gm, '<div style="background: #eff6ff; padding: 8px; margin: 10px 0; border-left: 3px solid #2563eb;"><strong>$1</strong></div>');
+    
+    formatted = formatted.replace(/^• (.+)$/gm, '<li style="margin: 5px 0;">$1</li>');
+    formatted = formatted.replace(/(<li.*?<\/li>\n?)+/g, '<ul style="margin: 10px 0; padding-left: 20px;">$&</ul>');
+    
+    formatted = formatted.replace(/✅/g, '<span style="color: #10b981;">✅</span>');
+    formatted = formatted.replace(/⚠️/g, '<span style="color: #f59e0b;">⚠️</span>');
+    formatted = formatted.replace(/💧/g, '<span style="color: #3b82f6;">💧</span>');
+    formatted = formatted.replace(/📱/g, '<span style="color: #8b5cf6;">📱</span>');
+    formatted = formatted.replace(/📋/g, '<span style="color: #6366f1;">📋</span>');
+    formatted = formatted.replace(/🏠/g, '<span style="color: #059669;">🏠</span>');
+    
+    formatted = formatted.replace(/https?:\/\/[^\s<]+/g, '<a href="$&" style="color: #2563eb; text-decoration: underline;">$&</a>');
+    formatted = formatted.replace(/[\w._%+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '<a href="mailto:$&" style="color: #2563eb; text-decoration: underline;">$&</a>');
+    
+    formatted = formatted.replace(/\[([A-Z\s]+)\]/g, '<span style="background: #fef3c7; padding: 2px 4px; border-radius: 3px; font-weight: bold;">[<span style="color: #d97706;">$1</span>]</span>');
+    
+    formatted = formatted.replace(/\n{2,}/g, '</p><p style="margin: 10px 0;">');
+    formatted = formatted.replace(/\n/g, '<br>');
+    
+    formatted = `<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #1f2937;"><p style="margin: 10px 0;">${formatted}</p></div>`;
+    
+    return formatted;
+  };
+
+  const generatePlainTextForRhenti = (html) => {
+    let rhentiFormat = html.replace(/<div[^>]*>|<\/div>/g, '');
+    rhentiFormat = rhentiFormat.replace(/<p[^>]*>|<\/p>/g, '');
+    
+    rhentiFormat = rhentiFormat.replace(/style="[^"]*"/g, (match) => {
+      if (match.includes('color: #dc2626')) return 'style="color: red; font-weight: bold;"';
+      if (match.includes('color: #2563eb')) return 'style="color: blue;"';
+      if (match.includes('background: #eff6ff')) return 'style="background: #e6f2ff;"';
+      return '';
+    });
+    
+    return rhentiFormat;
+  };
+
+  const copyToClipboard = () => {
+    const textToCopy = generatePlainTextForRhenti(formattedOutput);
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const applyTemplate = (templateKey) => {
+    setSelectedTemplate(templateKey);
+    setEmailContent(emailTemplates[templateKey].template);
+    if (emailTemplates[templateKey].template) {
+      setFormattedOutput(formatForRhenti(emailTemplates[templateKey].template));
+    }
+  };
+
+  const handleEmailContentChange = (e) => {
+    setEmailContent(e.target.value);
+    setFormattedOutput(formatForRhenti(e.target.value));
+  };
+
+  const insertFormatting = (before, after = '') => {
+    const textarea = document.getElementById('email-textarea');
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = emailContent.substring(start, end);
+    const newText = emailContent.substring(0, start) + before + selectedText + after + emailContent.substring(end);
+    setEmailContent(newText);
+    setFormattedOutput(formatForRhenti(newText));
+    
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + before.length, start + before.length + selectedText.length);
+    }, 0);
+  };
+
   return (
-    <div className="max-w-7xl mx-auto p-6 bg-white rounded-lg shadow-lg">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-2">
-          🏢 RR Report Dashboard & Sorting
-        </h1>
-        <p className="text-gray-600">
-          Upload your Yardi Rent Ready report for interactive dashboard with filtering and sorting
-        </p>
-      </div>
-
-      {!showDashboard && (
-        <>
-          {/* File Upload */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select your RR Report Excel file:
-            </label>
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={handleFileUpload}
-              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-            />
-          </div>
-
-          {/* Process Button */}
-          <div className="mb-6">
-            <button
-              onClick={handleProcess}
-              disabled={!file || processing}
-              className="w-full py-3 px-6 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-            >
-              {processing ? (
-                <div className="flex items-center justify-center gap-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Processing...
-                </div>
-              ) : (
-                '🚀 Process & Create Dashboard'
-              )}
-            </button>
-          </div>
-
-          {/* Status Messages */}
-          {status && (
-            <div className="mb-4 p-4 bg-blue-50 border-l-4 border-blue-400 text-blue-700">
-              <p className="font-medium">Status: {status}</p>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center space-x-4">
+              <h1 className="text-2xl font-bold text-gray-900">
+                🏢 Leasing Operations Hub
+              </h1>
+              <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
+                V7.0
+              </span>
             </div>
-          )}
-
-          {error && (
-            <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-400 text-red-700">
-              <p className="font-medium">Error: {error}</p>
-            </div>
-          )}
-
-          {/* How it Works */}
-          <div className="mt-8 p-6 bg-gray-50 rounded-lg">
-            <h3 className="font-semibold text-gray-800 mb-4">🔧 What This Does:</h3>
-            <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
-              <li><strong>Enhanced unit detection:</strong> Processes alphanumeric units (A16, BB2, 001A, E-003, PH04)</li>
-              <li><strong>Smart property extraction:</strong> Extracts property codes from Unit Type (e.g., 0014t11c → 14t)</li>
-              <li><strong>Advanced categorization:</strong> Available & Ready, Flagged, Next 30/60 days, Rented, Hold/Development</li>
-              <li><strong>Advanced filtering:</strong> Rent sliders, date ranges, multi-property selection, visual filter indicators</li>
-              <li><strong>Smart presets:</strong> "Ready This Week" (estimated dates), "Flagged Units" (data issues)</li>
-              <li><strong>Enhanced flagging:</strong> Rent ready without dates, rented but not ready, development but ready</li>
-              <li><strong>Smart days calculation:</strong> Uses actual ready date for ready units, estimated for others</li>
-              <li><strong>Excel export:</strong> Download cleaned data with all analysis columns</li>
-              <li><strong>PDF export:</strong> Print-optimized reports with customizable columns</li>
-            </ol>
-          </div>
-        </>
-      )}
-
-      {/* Dashboard */}
-      {showDashboard && cleanedData && (
-        <div className="space-y-6">
-          {/* Header with Stats */}
-          <div className="flex justify-between items-center">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-800">📊 Interactive RR Dashboard</h2>
-              <p className="text-gray-600">{cleanedData.length} units processed</p>
-            </div>
-            <div className="flex gap-3">
+            <div className="flex space-x-2">
               <button
-                onClick={() => setShowPdfOptions(!showPdfOptions)}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                onClick={() => setActiveTab('dashboard')}
+                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                  activeTab === 'dashboard' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
               >
-                📄 Generate PDF
+                <FileSpreadsheet size={18} />
+                RR Dashboard
               </button>
-              
-              {!downloadUrl ? (
-                <button
-                  onClick={exportToExcel}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                >
-                  📥 Prepare Excel Export
-                </button>
-              ) : (
-                <div className="flex gap-2">
-                  <a
-                    href={downloadUrl}
-                    download={`RR_Dashboard_${new Date().toISOString().split('T')[0]}.xlsx`}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-center"
-                  >
-                    📄 Download Excel
-                  </a>
-                  <span className="text-xs text-gray-500 self-center">
-                    👆 Right-click → "Save link as"
-                  </span>
-                </div>
-              )}
-              
               <button
-                onClick={() => setShowDashboard(false)}
-                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                onClick={() => setActiveTab('email')}
+                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                  activeTab === 'email' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
               >
-                🔄 Process New File
+                <Mail size={18} />
+                Email Formatter
               </button>
             </div>
-          </div>
-
-          {/* PDF Export Options */}
-          {showPdfOptions && (
-            <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-              <h3 className="font-semibold text-purple-800 mb-3">📄 PDF Export Options</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Format</label>
-                  <select
-                    value={pdfOptions.format}
-                    onChange={(e) => setPdfOptions({...pdfOptions, format: e.target.value})}
-                    className="w-full p-2 border border-gray-300 rounded text-sm"
-                  >
-                    <option value="table">Table Format (Detailed)</option>
-                    <option value="summary">Summary Report (with Stats)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Include Columns</label>
-                  <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
-                    {Object.entries({
-                      unitCode: 'Unit Code',
-                      property: 'Property',
-                      category: 'Category',
-                      unitDescription: 'Description',
-                      rentalType: 'Rental Type',
-                      askingRent: 'Asking Rent',
-                      rentReady: 'Rent Ready',
-                      estimatedReadyDate: 'Est. Date',
-                      actualReadyDate: 'Actual Date',
-                      daysUntilReady: 'Days Until Ready',
-                      vacateType: 'Vacate Type',
-                      futureMoveInDate: 'Move In Date',
-                      comments: 'Comments'
-                    }).map(([key, label]) => (
-                      <label key={key} className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={pdfOptions.includeColumns[key]}
-                          onChange={(e) => setPdfOptions({
-                            ...pdfOptions,
-                            includeColumns: {...pdfOptions.includeColumns, [key]: e.target.checked}
-                          })}
-                          className="mr-2"
-                        />
-                        <span className="text-xs">{label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="mt-4 flex gap-2">
-                <button
-                  onClick={generatePDF}
-                  className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
-                >
-                  🖨️ Open Print Preview
-                </button>
-                <button
-                  onClick={() => setShowPdfOptions(false)}
-                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-              <p className="text-xs text-gray-600 mt-2">
-                💡 This will open a new window with print-optimized formatting. Use your browser's Print → Save as PDF option.
-              </p>
-            </div>
-          )}
-
-          {/* Category Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
-            {Object.entries(getCategoryStats()).map(([category, count]) => (
-              <div key={category} className={`p-3 rounded-lg ${getCategoryColor(category)}`}>
-                <div className="text-lg font-bold">{count}</div>
-                <div className="text-xs leading-tight">{category.replace(' in ', '\nin ').replace(' (Flagged)', '\n(Flagged)')}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Filters */}
-          <div className="bg-gray-50 rounded-lg p-4 space-y-4">
-            {/* Basic Filters Row */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Property</label>
-                <select
-                  value={filters.property}
-                  onChange={(e) => setFilters({...filters, property: e.target.value})}
-                  className={`w-full p-2 border rounded text-sm transition-colors ${
-                    filters.property ? 'border-blue-400 bg-blue-50' : 'border-gray-300'
-                  }`}
-                >
-                  <option value="">All Properties</option>
-                  {[...new Set(cleanedData.map(unit => unit.property))].map(prop => (
-                    <option key={prop} value={prop}>{prop}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                <select
-                  value={filters.category}
-                  onChange={(e) => setFilters({...filters, category: e.target.value})}
-                  className={`w-full p-2 border rounded text-sm transition-colors ${
-                    filters.category ? 'border-green-400 bg-green-50' : 'border-gray-300'
-                  }`}
-                >
-                  <option value="">All Categories</option>
-                  {Object.keys(getCategoryStats()).map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Rent Ready</label>
-                <select
-                  value={filters.rentReady}
-                  onChange={(e) => setFilters({...filters, rentReady: e.target.value})}
-                  className={`w-full p-2 border rounded text-sm transition-colors ${
-                    filters.rentReady ? 'border-purple-400 bg-purple-50' : 'border-gray-300'
-                  }`}
-                >
-                  <option value="">All</option>
-                  <option value="yes">Yes</option>
-                  <option value="no">No</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
-                <input
-                  type="text"
-                  placeholder="Unit, description, comments..."
-                  value={filters.search}
-                  onChange={(e) => setFilters({...filters, search: e.target.value})}
-                  className={`w-full p-2 border rounded text-sm transition-colors ${
-                    filters.search ? 'border-orange-400 bg-orange-50' : 'border-gray-300'
-                  }`}
-                />
-              </div>
-            </div>
-
-            {/* Advanced Filters Toggle */}
-            <div className="flex justify-between items-center">
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-                >
-                  {showAdvancedFilters ? 'Hide' : 'Show'} Advanced Filters
-                </button>
-                
-                <div className="flex gap-1">
-                  <button 
-                    onClick={() => applyPresetFilter('Ready This Week')} 
-                    className={`px-2 py-1 rounded text-xs transition-colors ${
-                      filters.dateRange.start && filters.dateRange.dateType === 'estimated' 
-                        ? 'bg-blue-200 text-blue-800 border border-blue-300' 
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                  >
-                    Ready This Week
-                  </button>
-                  <button 
-                    onClick={() => applyPresetFilter('Flagged Units')} 
-                    className={`px-2 py-1 rounded text-xs transition-colors ${
-                      filters.showFlaggedOnly 
-                        ? 'bg-red-200 text-red-800 border border-red-300' 
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                  >
-                    Flagged Units
-                  </button>
-                </div>
-              </div>
-              
-              <button
-                onClick={() => setFilters({
-                  property: '',
-                  properties: [],
-                  category: '',
-                  rentReady: '',
-                  search: '',
-                  rentMin: 0,
-                  rentMax: 5000,
-                  dateRange: { start: '', end: '', dateType: 'estimated' },
-                  showFlaggedOnly: false
-                })}
-                className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
-              >
-                Clear All
-              </button>
-            </div>
-
-            {/* Active Filters Indicator */}
-            <div className="flex flex-wrap gap-2">
-              {filters.property && (
-                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
-                  Property: {filters.property}
-                </span>
-              )}
-              {filters.properties.length > 0 && (
-                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
-                  Properties: {filters.properties.join(', ')}
-                </span>
-              )}
-              {filters.category && (
-                <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">
-                  Category: {filters.category}
-                </span>
-              )}
-              {filters.rentReady && (
-                <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs">
-                  Rent Ready: {filters.rentReady}
-                </span>
-              )}
-              {filters.search && (
-                <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded-full text-xs">
-                  Search: "{filters.search}"
-                </span>
-              )}
-              {(filters.rentMin > 0 || filters.rentMax < 5000) && (
-                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs">
-                  Rent: ${filters.rentMin} - ${filters.rentMax}
-                </span>
-              )}
-              {filters.dateRange.start && filters.dateRange.end && (
-                <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs">
-                  {filters.dateRange.dateType === 'actual' ? 'Actual' : 'Estimated'} Date: {filters.dateRange.start} to {filters.dateRange.end}
-                </span>
-              )}
-              {filters.showFlaggedOnly && (
-                <span className="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs">
-                  Flagged Units Only
-                </span>
-              )}
-            </div>
-
-            {/* Advanced Filters */}
-            {showAdvancedFilters && (
-              <div className="border-t pt-4 space-y-4">
-                {/* Rent Range */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Rent Range: ${filters.rentMin} - ${filters.rentMax}
-                    {(filters.rentMin > 0 || filters.rentMax < 5000) && (
-                      <span className="ml-2 px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs">Active</span>
-                    )}
-                  </label>
-                  <div className="flex gap-4 items-center">
-                    <input
-                      type="range"
-                      min="0"
-                      max="5000"
-                      step="50"
-                      value={filters.rentMin}
-                      onChange={(e) => setFilters({...filters, rentMin: parseInt(e.target.value)})}
-                      className="flex-1"
-                    />
-                    <input
-                      type="range"
-                      min="0"
-                      max="5000"
-                      step="50"
-                      value={filters.rentMax}
-                      onChange={(e) => setFilters({...filters, rentMax: parseInt(e.target.value)})}
-                      className="flex-1"
-                    />
-                  </div>
-                </div>
-
-                {/* Date Range */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Date Type
-                      {filters.dateRange.start && filters.dateRange.end && (
-                        <span className="ml-2 px-2 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs">Active</span>
-                      )}
-                    </label>
-                    <select
-                      value={filters.dateRange.dateType}
-                      onChange={(e) => setFilters({...filters, dateRange: {...filters.dateRange, dateType: e.target.value}})}
-                      className="w-full p-2 border border-gray-300 rounded text-sm"
-                    >
-                      <option value="estimated">Estimated Ready Date</option>
-                      <option value="actual">Actual Ready Date</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">From Date</label>
-                    <input
-                      type="date"
-                      value={filters.dateRange.start}
-                      onChange={(e) => setFilters({...filters, dateRange: {...filters.dateRange, start: e.target.value}})}
-                      className={`w-full p-2 border rounded text-sm transition-colors ${
-                        filters.dateRange.start ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300'
-                      }`}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">To Date</label>
-                    <input
-                      type="date"
-                      value={filters.dateRange.end}
-                      onChange={(e) => setFilters({...filters, dateRange: {...filters.dateRange, end: e.target.value}})}
-                      className={`w-full p-2 border rounded text-sm transition-colors ${
-                        filters.dateRange.end ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                {/* Multi-Property Selection */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Multiple Properties
-                    {filters.properties.length > 0 && (
-                      <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
-                        {filters.properties.length} selected
-                      </span>
-                    )}
-                  </label>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    {[...new Set(cleanedData.map(unit => unit.property))].map(prop => (
-                      <label key={prop} className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={filters.properties.includes(prop)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setFilters({...filters, properties: [...filters.properties, prop]});
-                            } else {
-                              setFilters({...filters, properties: filters.properties.filter(p => p !== prop)});
-                            }
-                          }}
-                          className="mr-2"
-                        />
-                        <span className={`text-sm ${
-                          filters.properties.includes(prop) ? 'font-semibold text-blue-700' : ''
-                        }`}>{prop}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Data Table */}
-          <div className="bg-white rounded-lg border overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    {[
-                      {key: 'unitCode', label: 'Unit'},
-                      {key: 'property', label: 'Property'},
-                      {key: 'category', label: 'Category'},
-                      {key: 'unitDescription', label: 'Description'},
-                      {key: 'rentalType', label: 'Type'},
-                      {key: 'askingRent', label: 'Rent'},
-                      {key: 'rentReady', label: 'Ready'},
-                      {key: 'estimatedReadyDate', label: 'Est. Date'},
-                      {key: 'actualReadyDate', label: 'Actual Date'},
-                      {key: 'daysUntilReady', label: 'Days'},
-                      {key: 'vacateType', label: 'Vacate'},
-                      {key: 'futureMoveInDate', label: 'Move In'},
-                      {key: 'comments', label: 'Comments'}
-                    ].map(col => (
-                      <th 
-                        key={col.key}
-                        className="p-3 text-left cursor-pointer hover:bg-gray-100 border-b"
-                        onClick={() => handleSort(col.key)}
-                      >
-                        <div className="flex items-center gap-1">
-                          {col.label}
-                          {sortConfig.key === col.key && (
-                            <span className="text-blue-600">
-                              {sortConfig.direction === 'asc' ? '↑' : '↓'}
-                            </span>
-                          )}
-                        </div>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedAndFilteredData().map((unit, index) => (
-                    <tr key={`${unit.property}-${unit.unitCode}`} 
-                        className={`hover:bg-gray-50 ${unit.hasIssues ? 'bg-red-50' : ''}`}>
-                      <td className="p-3 font-medium">{unit.unitCode}</td>
-                      <td className="p-3">
-                        <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
-                          {unit.property}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <span className={`px-2 py-1 rounded text-xs ${getCategoryColor(unit.category)}`}>
-                          {unit.category}
-                        </span>
-                      </td>
-                      <td className="p-3 max-w-xs truncate">{unit.unitDescription}</td>
-                      <td className="p-3 text-xs">{unit.rentalType}</td>
-                      <td className="p-3">${unit.askingRent.toLocaleString()}</td>
-                      <td className="p-3">
-                        <span className={`px-2 py-1 rounded text-xs ${
-                          unit.rentReady === 'yes' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {unit.rentReady}
-                        </span>
-                        {unit.hasIssues && <span className="text-red-500 ml-1">⚠️</span>}
-                      </td>
-                      <td className="p-3">
-                        {unit.estimatedReadyDate ? unit.estimatedReadyDate.toLocaleDateString() : '—'}
-                      </td>
-                      <td className="p-3">
-                        {unit.actualReadyDate ? (
-                          <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
-                            {unit.actualReadyDate instanceof Date ? 
-                              unit.actualReadyDate.toLocaleDateString() : 
-                              unit.actualReadyDate.toString()}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-                      <td className="p-3">
-                        {unit.daysUntilReady !== null ? (
-                          <span className={`px-2 py-1 rounded text-xs ${
-                            unit.daysUntilReady <= 0 ? 'bg-green-100 text-green-800' :
-                            unit.daysUntilReady <= 30 ? 'bg-blue-100 text-blue-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {unit.daysUntilReady <= 0 ? 'Ready' : `${unit.daysUntilReady}d`}
-                          </span>
-                        ) : '—'}
-                      </td>
-                      <td className="p-3 text-xs">{unit.vacateType || '—'}</td>
-                      <td className="p-3 text-xs">{unit.futureMoveInDate || '—'}</td>
-                      <td className="p-3 max-w-xs truncate">{unit.comments}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {sortedAndFilteredData().length === 0 && (
-              <div className="p-8 text-center text-gray-500">
-                No units match your current filters.
-              </div>
-            )}
-          </div>
-
-          {/* Summary */}
-          <div className="text-sm text-gray-600 text-center">
-            Showing {sortedAndFilteredData().length} of {cleanedData.length} units
           </div>
         </div>
-      )}
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {activeTab === 'dashboard' ? (
+          /* RR Dashboard Tab (Full V6 Functionality) */
+          <div className="space-y-6">
+            {!showDashboard ? (
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <div className="text-center mb-8">
+                  <h2 className="text-3xl font-bold text-gray-800 mb-2">
+                    🏢 RR Report Dashboard & Sorting
+                  </h2>
+                  <p className="text-gray-600">
+                    Upload your Yardi Rent Ready report for interactive dashboard with filtering and sorting
+                  </p>
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select your RR Report Excel file:
+                  </label>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={handleFileUpload}
+                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  />
+                </div>
+
+                <div className="mb-6">
+                  <button
+                    onClick={handleProcess}
+                    disabled={!file || processing}
+                    className="w-full py-3 px-6 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {processing ? (
+                      <div className="flex items-center justify-center gap-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Processing...
+                      </div>
+                    ) : (
+                      '🚀 Process & Create Dashboard'
+                    )}
+                  </button>
+                </div>
+
+                {status && (
+                  <div className="mb-4 p-4 bg-blue-50 border-l-4 border-blue-400 text-blue-700">
+                    <p className="font-medium">Status: {status}</p>
+                  </div>
+                )}
+
+                {error && (
+                  <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-400 text-red-700">
+                    <p className="font-medium">Error: {error}</p>
+                  </div>
+                )}
+
+                <div className="mt-8 p-6 bg-gray-50 rounded-lg">
+                  <h3 className="font-semibold text-gray-800 mb-4">🔧 What This Does:</h3>
+                  <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
+                    <li><strong>Enhanced unit detection:</strong> Processes alphanumeric units (A16, BB2, 001A, E-003, PH04)</li>
+                    <li><strong>Smart property extraction:</strong> Extracts property codes from Unit Type (e.g., 0014t11c → 14t)</li>
+                    <li><strong>Advanced categorization:</strong> Available & Ready, Flagged, Next 30/60 days, Rented, Hold/Development</li>
+                    <li><strong>Advanced filtering:</strong> Rent sliders, date ranges, multi-property selection, visual filter indicators</li>
+                    <li><strong>Smart presets:</strong> "Ready This Week" (estimated dates), "Flagged Units" (data issues)</li>
+                    <li><strong>Enhanced flagging:</strong> Rent ready without dates, rented but not ready, development but ready</li>
+                    <li><strong>Smart days calculation:</strong> Uses actual ready date for ready units, estimated for others</li>
+                    <li><strong>Excel export:</strong> Download cleaned data with all analysis columns</li>
+                    <li><strong>PDF export:</strong> Print-optimized reports with customizable columns</li>
+                  </ol>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Dashboard Header */}
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-800">📊 Interactive RR Dashboard</h2>
+                    <p className="text-gray-600">{cleanedData.length} units processed</p>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowPdfOptions(!showPdfOptions)}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                    >
+                      📄 Generate PDF
+                    </button>
+                    
+                    {!downloadUrl ? (
+                      <button
+                        onClick={exportToExcel}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                      >
+                        📥 Prepare Excel Export
+                      </button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <a
+                          href={downloadUrl}
+                          download={`RR_Dashboard_${new Date().toISOString().split('T')[0]}.xlsx`}
+                          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-center"
+                        >
+                          📄 Download Excel
+                        </a>
+                        <span className="text-xs text-gray-500 self-center">
+                          👆 Right-click → "Save link as"
+                        </span>
+                      </div>
+                    )}
+                    
+                    <button
+                      onClick={() => setShowDashboard(false)}
+                      className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                    >
+                      🔄 Process New File
+                    </button>
+                  </div>
+                </div>
+
+                {/* PDF Export Options */}
+                {showPdfOptions && (
+                  <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                    <h3 className="font-semibold text-purple-800 mb-3">📄 PDF Export Options</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Format</label>
+                        <select
+                          value={pdfOptions.format}
+                          onChange={(e) => setPdfOptions({...pdfOptions, format: e.target.value})}
+                          className="w-full p-2 border border-gray-300 rounded text-sm"
+                        >
+                          <option value="table">Table Format (Detailed)</option>
+                          <option value="summary">Summary Report (with Stats)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Include Columns</label>
+                        <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                          {Object.entries({
+                            unitCode: 'Unit Code',
+                            property: 'Property',
+                            category: 'Category',
+                            unitDescription: 'Description',
+                            rentalType: 'Rental Type',
+                            askingRent: 'Asking Rent',
+                            rentReady: 'Rent Ready',
+                            estimatedReadyDate: 'Est. Date',
+                            actualReadyDate: 'Actual Date',
+                            daysUntilReady: 'Days Until Ready',
+                            vacateType: 'Vacate Type',
+                            futureMoveInDate: 'Move In Date',
+                            comments: 'Comments'
+                          }).map(([key, label]) => (
+                            <label key={key} className="flex items-center">
+                              <input
+                                type="checkbox"
+                                checked={pdfOptions.includeColumns[key]}
+                                onChange={(e) => setPdfOptions({
+                                  ...pdfOptions,
+                                  includeColumns: {...pdfOptions.includeColumns, [key]: e.target.checked}
+                                })}
+                                className="mr-2"
+                              />
+                              <span className="text-xs">{label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        onClick={generatePDF}
+                        className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                      >
+                        🖨️ Open Print Preview
+                      </button>
+                      <button
+                        onClick={() => setShowPdfOptions(false)}
+                        className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-2">
+                      💡 This will open a new window with print-optimized formatting. Use your browser's Print → Save as PDF option.
+                    </p>
+                  </div>
+                )}
+
+                {/* Category Summary Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+                  {Object.entries(getCategoryStats()).map(([category, count]) => (
+                    <div key={category} className={`p-3 rounded-lg ${getCategoryColor(category)}`}>
+                      <div className="text-lg font-bold">{count}</div>
+                      <div className="text-xs leading-tight">{category.replace(' in ', '\nin ').replace(' (Flagged)', '\n(Flagged)')}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Filters */}
+                <div className="bg-gray-50 rounded-lg p-4 space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Property</label>
+                      <select
+                        value={filters.property}
+                        onChange={(e) => setFilters({...filters, property: e.target.value})}
+                        className={`w-full p-2 border rounded text-sm transition-colors ${
+                          filters.property ? 'border-blue-400 bg-blue-50' : 'border-gray-300'
+                        }`}
+                      >
+                        <option value="">All Properties</option>
+                        {[...new Set(cleanedData.map(unit => unit.property))].map(prop => (
+                          <option key={prop} value={prop}>{prop}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                      <select
+                        value={filters.category}
+                        onChange={(e) => setFilters({...filters, category: e.target.value})}
+                        className={`w-full p-2 border rounded text-sm transition-colors ${
+                          filters.category ? 'border-green-400 bg-green-50' : 'border-gray-300'
+                        }`}
+                      >
+                        <option value="">All Categories</option>
+                        {Object.keys(getCategoryStats()).map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Rent Ready</label>
+                      <select
+                        value={filters.rentReady}
+                        onChange={(e) => setFilters({...filters, rentReady: e.target.value})}
+                        className={`w-full p-2 border rounded text-sm transition-colors ${
+                          filters.rentReady ? 'border-purple-400 bg-purple-50' : 'border-gray-300'
+                        }`}
+                      >
+                        <option value="">All</option>
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
+                      <input
+                        type="text"
+                        placeholder="Unit, description, comments..."
+                        value={filters.search}
+                        onChange={(e) => setFilters({...filters, search: e.target.value})}
+                        className={`w-full p-2 border rounded text-sm transition-colors ${
+                          filters.search ? 'border-orange-400 bg-orange-50' : 'border-gray-300'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                        className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                      >
+                        {showAdvancedFilters ? 'Hide' : 'Show'} Advanced Filters
+                      </button>
+                      
+                      <div className="flex gap-1">
+                        <button 
+                          onClick={() => applyPresetFilter('Ready This Week')} 
+                          className={`px-2 py-1 rounded text-xs transition-colors ${
+                            filters.dateRange.start && filters.dateRange.dateType === 'estimated' 
+                              ? 'bg-blue-200 text-blue-800 border border-blue-300' 
+                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          }`}
+                        >
+                          Ready This Week
+                        </button>
+                        <button 
+                          onClick={() => applyPresetFilter('Flagged Units')} 
+                          className={`px-2 py-1 rounded text-xs transition-colors ${
+                            filters.showFlaggedOnly 
+                              ? 'bg-red-200 text-red-800 border border-red-300' 
+                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          }`}
+                        >
+                          Flagged Units
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <button
+                      onClick={() => setFilters({
+                        property: '',
+                        properties: [],
+                        category: '',
+                        rentReady: '',
+                        search: '',
+                        rentMin: 0,
+                        rentMax: 5000,
+                        dateRange: { start: '', end: '', dateType: 'estimated' },
+                        showFlaggedOnly: false
+                      })}
+                      className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {filters.property && (
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                        Property: {filters.property}
+                      </span>
+                    )}
+                    {filters.properties.length > 0 && (
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                        Properties: {filters.properties.join(', ')}
+                      </span>
+                    )}
+                    {filters.category && (
+                      <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">
+                        Category: {filters.category}
+                      </span>
+                    )}
+                    {filters.rentReady && (
+                      <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs">
+                        Rent Ready: {filters.rentReady}
+                      </span>
+                    )}
+                    {filters.search && (
+                      <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded-full text-xs">
+                        Search: "{filters.search}"
+                      </span>
+                    )}
+                    {(filters.rentMin > 0 || filters.rentMax < 5000) && (
+                      <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs">
+                        Rent: ${filters.rentMin} - ${filters.rentMax}
+                      </span>
+                    )}
+                    {filters.dateRange.start && filters.dateRange.end && (
+                      <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs">
+                        {filters.dateRange.dateType === 'actual' ? 'Actual' : 'Estimated'} Date: {filters.dateRange.start} to {filters.dateRange.end}
+                      </span>
+                    )}
+                    {filters.showFlaggedOnly && (
+                      <span className="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs">
+                        Flagged Units Only
+                      </span>
+                    )}
+                  </div>
+
+                  {showAdvancedFilters && (
+                    <div className="border-t pt-4 space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Rent Range: ${filters.rentMin} - ${filters.rentMax}
+                          {(filters.rentMin > 0 || filters.rentMax < 5000) && (
+                            <span className="ml-2 px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs">Active</span>
+                          )}
+                        </label>
+                        <div className="flex gap-4 items-center">
+                          <input
+                            type="range"
+                            min="0"
+                            max="5000"
+                            step="50"
+                            value={filters.rentMin}
+                            onChange={(e) => setFilters({...filters, rentMin: parseInt(e.target.value)})}
+                            className="flex-1"
+                          />
+                          <input
+                            type="range"
+                            min="0"
+                            max="5000"
+                            step="50"
+                            value={filters.rentMax}
+                            onChange={(e) => setFilters({...filters, rentMax: parseInt(e.target.value)})}
+                            className="flex-1"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Date Type
+                            {filters.dateRange.start && filters.dateRange.end && (
+                              <span className="ml-2 px-2 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs">Active</span>
+                            )}
+                          </label>
+                          <select
+                            value={filters.dateRange.dateType}
+                            onChange={(e) => setFilters({...filters, dateRange: {...filters.dateRange, dateType: e.target.value}})}
+                            className="w-full p-2 border border-gray-300 rounded text-sm"
+                          >
+                            <option value="estimated">Estimated Ready Date</option>
+                            <option value="actual">Actual Ready Date</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+                          <input
+                            type="date"
+                            value={filters.dateRange.start}
+                            onChange={(e) => setFilters({...filters, dateRange: {...filters.dateRange, start: e.target.value}})}
+                            className={`w-full p-2 border rounded text-sm transition-colors ${
+                              filters.dateRange.start ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300'
+                            }`}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+                          <input
+                            type="date"
+                            value={filters.dateRange.end}
+                            onChange={(e) => setFilters({...filters, dateRange: {...filters.dateRange, end: e.target.value}})}
+                            className={`w-full p-2 border rounded text-sm transition-colors ${
+                              filters.dateRange.end ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300'
+                            }`}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Select Multiple Properties
+                          {filters.properties.length > 0 && (
+                            <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                              {filters.properties.length} selected
+                            </span>
+                          )}
+                        </label>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                          {[...new Set(cleanedData.map(unit => unit.property))].map(prop => (
+                            <label key={prop} className="flex items-center">
+                              <input
+                                type="checkbox"
+                                checked={filters.properties.includes(prop)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setFilters({...filters, properties: [...filters.properties, prop]});
+                                  } else {
+                                    setFilters({...filters, properties: filters.properties.filter(p => p !== prop)});
+                                  }
+                                }}
+                                className="mr-2"
+                              />
+                              <span className={`text-sm ${
+                                filters.properties.includes(prop) ? 'font-semibold text-blue-700' : ''
+                              }`}>{prop}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Data Table */}
+                <div className="bg-white rounded-lg border overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          {[
+                            {key: 'unitCode', label: 'Unit'},
+                            {key: 'property', label: 'Property'},
+                            {key: 'category', label: 'Category'},
+                            {key: 'unitDescription', label: 'Description'},
+                            {key: 'rentalType', label: 'Type'},
+                            {key: 'askingRent', label: 'Rent'},
+                            {key: 'rentReady', label: 'Ready'},
+                            {key: 'estimatedReadyDate', label: 'Est. Date'},
+                            {key: 'actualReadyDate', label: 'Actual Date'},
+                            {key: 'daysUntilReady', label: 'Days'},
+                            {key: 'vacateType', label: 'Vacate'},
+                            {key: 'futureMoveInDate', label: 'Move In'},
+                            {key: 'comments', label: 'Comments'}
+                          ].map(col => (
+                            <th 
+                              key={col.key}
+                              className="p-3 text-left cursor-pointer hover:bg-gray-100 border-b"
+                              onClick={() => handleSort(col.key)}
+                            >
+                              <div className="flex items-center gap-1">
+                                {col.label}
+                                {sortConfig.key === col.key && (
+                                  <span className="text-blue-600">
+                                    {sortConfig.direction === 'asc' ? '↑' : '↓'}
+                                  </span>
+                                )}
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedAndFilteredData().map((unit, index) => (
+                          <tr key={`${unit.property}-${unit.unitCode}`} 
+                              className={`hover:bg-gray-50 ${unit.hasIssues ? 'bg-red-50' : ''}`}>
+                            <td className="p-3 font-medium">{unit.unitCode}</td>
+                            <td className="p-3">
+                              <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                                {unit.property}
+                              </span>
+                            </td>
+                            <td className="p-3">
+                              <span className={`px-2 py-1 rounded text-xs ${getCategoryColor(unit.category)}`}>
+                                {unit.category}
+                              </span>
+                            </td>
+                            <td className="p-3 max-w-xs truncate">{unit.unitDescription}</td>
+                            <td className="p-3 text-xs">{unit.rentalType}</td>
+                            <td className="p-3">${unit.askingRent.toLocaleString()}</td>
+                            <td className="p-3">
+                              <span className={`px-2 py-1 rounded text-xs ${
+                                unit.rentReady === 'yes' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                              }`}>
+                                {unit.rentReady}
+                              </span>
+                              {unit.hasIssues && <span className="text-red-500 ml-1">⚠️</span>}
+                            </td>
+                            <td className="p-3">
+                              {unit.estimatedReadyDate ? unit.estimatedReadyDate.toLocaleDateString() : '—'}
+                            </td>
+                            <td className="p-3">
+                              {unit.actualReadyDate ? (
+                                <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
+                                  {unit.actualReadyDate instanceof Date ? 
+                                    unit.actualReadyDate.toLocaleDateString() : 
+                                    unit.actualReadyDate.toString()}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">—</span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              {unit.daysUntilReady !== null ? (
+                                <span className={`px-2 py-1 rounded text-xs ${
+                                  unit.daysUntilReady <= 0 ? 'bg-green-100 text-green-800' :
+                                  unit.daysUntilReady <= 30 ? 'bg-blue-100 text-blue-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {unit.daysUntilReady <= 0 ? 'Ready' : `${unit.daysUntilReady}d`}
+                                </span>
+                              ) : '—'}
+                            </td>
+                            <td className="p-3 text-xs">{unit.vacateType || '—'}</td>
+                            <td className="p-3 text-xs">{unit.futureMoveInDate || '—'}</td>
+                            <td className="p-3 max-w-xs truncate">{unit.comments}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {sortedAndFilteredData().length === 0 && (
+                    <div className="p-8 text-center text-gray-500">
+                      No units match your current filters.
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-sm text-gray-600 text-center">
+                  Showing {sortedAndFilteredData().length} of {cleanedData.length} units
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
+          /* Email Formatter Tab */
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                  <Mail className="text-blue-600" size={20} />
+                  Email Composer
+                </h3>
+                <div className="flex items-center gap-2">
+                  <Sparkles className="text-yellow-500" size={16} />
+                  <span className="text-xs text-gray-600">Rhenti Optimized</span>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Quick Templates
+                </label>
+                <select
+                  value={selectedTemplate}
+                  onChange={(e) => applyTemplate(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Select a template...</option>
+                  {Object.entries(emailTemplates).map(([key, template]) => (
+                    <option key={key} value={key}>{template.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-wrap gap-1 mb-3 p-2 bg-gray-50 rounded-lg">
+                <button
+                  onClick={() => insertFormatting('**', '**')}
+                  className="p-2 hover:bg-white rounded transition-colors"
+                  title="Bold"
+                >
+                  <Bold size={16} />
+                </button>
+                <button
+                  onClick={() => insertFormatting('*', '*')}
+                  className="p-2 hover:bg-white rounded transition-colors"
+                  title="Italic"
+                >
+                  <Italic size={16} />
+                </button>
+                <button
+                  onClick={() => insertFormatting('• ')}
+                  className="p-2 hover:bg-white rounded transition-colors"
+                  title="Bullet Point"
+                >
+                  <List size={16} />
+                </button>
+                <button
+                  onClick={() => insertFormatting('=== ', ' ===')}
+                  className="p-2 hover:bg-white rounded transition-colors"
+                  title="Header"
+                >
+                  <Type size={16} />
+                </button>
+                <button
+                  onClick={() => insertFormatting('>> ')}
+                  className="p-2 hover:bg-white rounded transition-colors"
+                  title="Section"
+                >
+                  <ChevronRight size={16} />
+                </button>
+                <button
+                  onClick={() => insertFormatting('***** ', ' *****')}
+                  className="p-2 hover:bg-white rounded transition-colors"
+                  title="Highlight"
+                >
+                  <Palette size={16} />
+                </button>
+                <button
+                  onClick={() => insertFormatting('[', ']')}
+                  className="p-2 hover:bg-white rounded transition-colors"
+                  title="Placeholder"
+                >
+                  <Code size={16} />
+                </button>
+              </div>
+
+              <textarea
+                id="email-textarea"
+                value={emailContent}
+                onChange={handleEmailContentChange}
+                placeholder="Type or paste your email content here...
+
+Use formatting:
+**text** for bold
+*text* for italic
+=== Header ===
+>> Section header
+• Bullet points
+[PLACEHOLDER] for variables
+***** HIGHLIGHT TEXT *****"
+                className="w-full h-96 p-4 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+
+              <div className="mt-3 p-3 bg-blue-50 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="text-blue-600 mt-0.5" size={16} />
+                  <div className="text-xs text-blue-800">
+                    <p className="font-semibold mb-1">Pro Tips:</p>
+                    <ul className="space-y-1">
+                      <li>• Use [PLACEHOLDERS] for dynamic content</li>
+                      <li>• Emojis are preserved and styled</li>
+                      <li>• URLs and emails are auto-linked</li>
+                      <li>• Copy output directly to Rhenti</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                  <Code className="text-green-600" size={20} />
+                  Formatted Output
+                </h3>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowPreview(!showPreview)}
+                    className={`px-3 py-1 rounded-lg text-sm flex items-center gap-1 transition-colors ${
+                      showPreview 
+                        ? 'bg-purple-100 text-purple-700' 
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    <Eye size={14} />
+                    {showPreview ? 'Preview' : 'HTML'}
+                  </button>
+                  <button
+                    onClick={copyToClipboard}
+                    className={`px-3 py-1 rounded-lg text-sm flex items-center gap-1 transition-colors ${
+                      copied 
+                        ? 'bg-green-100 text-green-700' 
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    {copied ? <Check size={14} /> : <Copy size={14} />}
+                    {copied ? 'Copied!' : 'Copy for Rhenti'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                {showPreview ? (
+                  <div 
+                    className="p-4 bg-gray-50 min-h-[400px] max-h-[600px] overflow-y-auto"
+                    dangerouslySetInnerHTML={{ __html: formattedOutput || '<p style="color: #9ca3af;">Your formatted email will appear here...</p>' }}
+                  />
+                ) : (
+                  <pre className="p-4 bg-gray-900 text-green-400 text-xs overflow-x-auto min-h-[400px] max-h-[600px] overflow-y-auto">
+                    <code>{generatePlainTextForRhenti(formattedOutput) || '// HTML output will appear here...'}</code>
+                  </pre>
+                )}
+              </div>
+
+              <div className="mt-3 p-3 bg-green-50 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <Check className="text-green-600 mt-0.5" size={16} />
+                  <div className="text-xs text-green-800">
+                    <p className="font-semibold mb-1">Ready for Rhenti!</p>
+                    <p>This output is optimized for Rhenti's email system and will display correctly in prospect emails.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
 
-export default RRReportProcessor;
+export default RRDashboardWithEmailFormatter;
