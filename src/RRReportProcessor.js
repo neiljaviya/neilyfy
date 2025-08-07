@@ -883,7 +883,13 @@ const generatePlainTextForRhenti = (html) => {
     .replace(/<\/ul>/gi, '</ul>\n');
 
   // 3. Clean up spacing artifacts (optional)
-  rhentiFormat = rhentiFormat.replace(/\n{3,}/g, '\n\n');
+  rhentiFormat = rhentiFormat
+    .replace(/\n{2,}/g, '</p>\n<p style="margin: 10px 0;">');
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/<\/strong>\s*<br>/g, '</strong><br><br>')
+    .replace(/<\/ul>/g, '</ul><br>')
+    .replace(/<\/h3>/g, '</h3><br>')
+    .replace(/<\/p>/g, '</p><br>');;
 
   return rhentiFormat.trim();
 };
