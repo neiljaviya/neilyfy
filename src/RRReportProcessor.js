@@ -868,28 +868,26 @@ Contact me at [PHONE] with questions!`
   };
 
 const generatePlainTextForRhenti = (html) => {
-  let rhentiFormat = html.replace(/<div[^>]*>|<\/div>/g, '');
-  rhentiFormat = rhentiFormat.replace(/<p[^>]*>|<\/p>/g, '');
+  let rhentiFormat = html;
 
-  rhentiFormat = rhentiFormat.replace(/style="[^"]*"/g, (match) => {
-    if (match.includes('color: #dc2626')) return 'style="color: red; font-weight: bold;"';
-    if (match.includes('color: #2563eb')) return 'style="color: blue;"';
-    if (match.includes('background: #eff6ff')) return 'style="background: #e6f2ff;"';
-    return '';
-  });
+  // 1. Remove wrapping div/p tags
+  rhentiFormat = rhentiFormat.replace(/<\/?(div|p)[^>]*>/g, '');
 
-  // ✅ Add line breaks after <strong>, <span>, <br>, etc.
+  // 2. Add newline after breaks, strong, span, headers
   rhentiFormat = rhentiFormat
-    .replace(/<\/strong>/g, '</strong>\n')
-    .replace(/<\/span>/g, '</span>\n')
-    .replace(/<br\s*\/?>/g, '<br>\n')
-    .replace(/<\/li>/g, '</li>\n');
+    .replace(/<br\s*\/?>/gi, '<br>\n')
+    .replace(/<\/strong>/gi, '</strong>\n')
+    .replace(/<\/span>/gi, '</span>\n')
+    .replace(/<\/h[1-6]>/gi, match => match + '\n')
+    .replace(/<\/li>/gi, '</li>\n')
+    .replace(/<\/ul>/gi, '</ul>\n');
 
-  // ✅ Also optionally prettify ul
-  rhentiFormat = rhentiFormat.replace(/<\/ul>/g, '</ul>\n');
+  // 3. Clean up spacing artifacts (optional)
+  rhentiFormat = rhentiFormat.replace(/\n{3,}/g, '\n\n');
 
-  return rhentiFormat;
+  return rhentiFormat.trim();
 };
+
 
   const copyToClipboard = () => {
     const textToCopy = generatePlainTextForRhenti(formattedOutput);
