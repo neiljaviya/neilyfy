@@ -261,28 +261,45 @@ Contact me at [PHONE] with questions!`
   };
 
   const checkForIssues = (unit) => {
-    const hasActualReadyDate = unit.actualReadyDate && 
-                              unit.actualReadyDate !== '' && 
-                              unit.actualReadyDate !== null;
-    
-    const hasMoveinDate = unit.futureMoveInDate && unit.futureMoveInDate.toString().trim() !== '';
-    
-    const isDownHoldModel = unit.category === 'Down/Hold/Model/Development';
-    
-    if (unit.rentReady === 'yes' && !hasActualReadyDate) {
-      return true;
-    }
-    
-    if (hasMoveinDate && unit.rentReady !== 'yes') {
-      return true;
-    }
-    
-    if (isDownHoldModel && unit.rentReady === 'yes') {
-      return true;
-    }
-    
-    return false;
-  };
+      const hasActualReadyDate = unit.actualReadyDate && 
+                                unit.actualReadyDate !== '' && 
+                                unit.actualReadyDate !== null;
+      
+      const hasMoveinDate = unit.futureMoveInDate && unit.futureMoveInDate.toString().trim() !== '';
+      
+      const isDownHoldModel = unit.category === 'Down/Hold/Model/Development';
+      
+      // Flag if rent ready is "yes" but actual ready date is empty
+      if (unit.rentReady === 'yes' && !hasActualReadyDate) {
+        return true;
+      }
+      
+      // Flag if unit is rented (has future move-in date) but not rent ready
+      if (hasMoveinDate && unit.rentReady !== 'yes') {
+        return true;
+      }
+      
+      // Flag if unit is Down/Hold/Model/Development but marked as rent ready
+      if (isDownHoldModel && unit.rentReady === 'yes') {
+        return true;
+      }
+      
+      // Flag if moveout date equals ready date (indicates in-suite hasn't scoped yet)
+      if (unit.vacantAsOf && unit.estimatedReadyDate) {
+        const moveoutDate = parseDate(unit.vacantAsOf);
+        if (moveoutDate && moveoutDate.getTime() === unit.estimatedReadyDate.getTime()) {
+          return true;
+        }
+      }
+      
+      // Flag if make ready notes indicate new unscoped unit
+      if (unit.makeReadyNotes && 
+          unit.makeReadyNotes.toLowerCase().includes('new make ready - add notes')) {
+        return true;
+      }
+      
+      return false;
+    };
 
   const cleanAndProcessData = (jsonData) => {
     const cleanedUnits = [];
